@@ -667,13 +667,12 @@ class _fakesocket(asyncore_dispatcher):
             return
 
         channel, methodName, args = self.readQueue[0]
-        fn = getattr(self.socket, methodName)
         #print self._fileno, "handle_read:---ENTER---", id(channel)
         while channel.balance < 0:
             args = self.readQueue[0][2]
             #print self._fileno, "handle_read:CALL", id(channel), args
             try:
-                result = fn(*args)
+                result = getattr(self.socket, methodName)(*args)
                 #print self._fileno, "handle_read:RESULT", id(channel), len(result)
             except Exception, e:
                 # winsock sometimes throws ENOTCONN
