@@ -151,11 +151,11 @@ _schedule_func = stackless.schedule
 _manage_sockets_func = StartManager
 _sleep_func = None
 _timeout_func = None
-_channel_refs = weakref.WeakSet()
+_channel_refs = weakref.WeakKeyDictionary()
 
 def make_channel():
     c = stackless.channel()
-    _channel_refs.add(c)
+    _channel_refs[c] = None
     return c
 
 def can_timeout():
