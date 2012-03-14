@@ -3,6 +3,7 @@ import sys
 import stackless
 import contextlib
 import weakref
+import socket
 from .main import mainloop, event_queue
 
 import threading
@@ -238,17 +239,15 @@ class TasklettingMixIn:
     #Socketserver.  This is unnecessary and annoying, the code should rely
     #on the timeout properties of the listening socket.
     def serve_forever(self, poll_interval=0.5):
-        self.__is_shut_down.clear()
-        try:
-            while not self.__shutdown_request:
-                try:
-                    self._handle_request_timeout(poll_interval)
-                except socket.timeout:
-                    pass
-                self.service_actions()
-        finally:
-            self.__shutdown_request = False
-            self.__is_shut_down.set()
+        while True:
+            try:
+                self._handle_request_timeout(poll_interval)
+            except socket.timeout:
+                pass
+            self.service_actions()
+
+    def service_actions(self):
+        pass
 
     def handle_request(self):
         """Handle one request, possibly blocking.
