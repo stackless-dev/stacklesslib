@@ -11,10 +11,23 @@ from __future__ import with_statement
 from __future__ import absolute_import
 
 import stackless
+import contextlib
 
+from . import main
 from .main import set_channel_pref, elapsed_time
 from .util import atomic, channel_wait, WaitTimeoutError
 
+
+@contextlib.contextmanager
+def released(lock):
+    """A context manager for temporarily releasing and reacquiring a lock
+       using the provide lock's release() and acquire() methods.
+    """
+    lock.release()
+    try:
+        yield
+    finally:
+        lock.acquire()
 
 def lock_channel_wait(chan, timeout):
     """
@@ -337,3 +350,72 @@ class Event(object):
                 if self.chan.balance:
                     self.chan.send(None)
 
+
+class ValueEvent(stackless.channel):
+    """
+    This synchronization object wraps channels in a simpler interface
+    and takes care of ensuring that any use of the channel after its
+    lifetime has finished results in a custom exception being raised
+    to the user, rather than the standard StopIteration they would
+    otherwise get.
+
+    set() or abort() can only be called once for each instance of this object.
+    """
+
+    def __new__(cls, timeout=None, timeoutException=None, timeoutExceptionValue=None):
+        obj = super(ValueEvent, cls).__new__(cls)
+        obj.timeout = timeout
+
+        if timeout > 0.0:
+            if timeoutException is None:
+                timeoutException = WaitTimeoutError
+                timeoutExceptionValue = "Event timed out"
+
+            def break_wait():
+                if not obj.closed:
+                    obj.abort(timeoutException, timeoutExceptionValue)
+            main.event_queue.push_after(break_wait, timeout)
+
+        return obj
+
+    def __repr__(self):
+        return "<ValueEvent object at 0x%x, balance=%s, queue=%s, timeout=%s>" % (id(self), self.balance, self.queue, self.timeout)
+
+    def set(self, value=None):
+        """
+        Resume all blocking tasklets by signaling or sending them 'value'.
+        This function will raise an exception if the object is already signaled or aborted.
+        """
+        if self.closed:
+            raise RuntimeError("ValueEvent object already signaled or aborted.")
+
+        while self.queue:
+            self.send(value)
+
+        self.close()
+        self.exception, self.value = RuntimeError, ("Already resumed",)
+
+    def abort(self, exception=None, *value):
+        """
+        Abort all blocking tasklets by raising an exception in them.
+        This function will raise an exception if the object is already signaled or aborted.
+        """
+        if self.closed:
+            raise RuntimeError("ValueEvent object already signaled or aborted.")
+
+        if exception is None:
+            exception, value = self.exception, self.value
+        else:
+            self.exception, self.value = exception, value
+
+        while self.queue:
+            self.send_exception(exception, *value)
+
+        self.close()
+
+    def wait(self):
+        """Wait for the data. If time-out occurs, an exception is raised"""
+        if self.closed:
+            raise self.exception(*self.value)
+
+        return self.receive()

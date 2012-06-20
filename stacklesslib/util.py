@@ -4,16 +4,7 @@ import stackless
 import contextlib
 import weakref
 import collections
-from . import main
-
-import threading
-if hasattr(threading, "real_threading"):
-    _realthreading = threading.realthreading
-    _RealThread = threading.realthreading.Thread
-else:
-    _realthreading = threading
-    _RealThread = threading.Thread
-del threading
+from . import main, threadpool
 
 
 @contextlib.contextmanager
@@ -114,78 +105,11 @@ def channel_wait(chan, timeout=None):
         finally:
             waiting_tasklet = None
 
-class ValueEvent(stackless.channel):
-    """
-    This synchronization object wraps channels in a simpler interface
-    and takes care of ensuring that any use of the channel after its
-    lifetime has finished results in a custom exception being raised
-    to the user, rather than the standard StopIteration they would
-    otherwise get.
-
-    set() or abort() can only be called once for each instance of this object.
-    """
-
-    def __new__(cls, timeout=None, timeoutException=None, timeoutExceptionValue=None):
-        obj = super(ValueEvent, cls).__new__(cls)
-        obj.timeout = timeout
-
-        if timeout > 0.0:
-            if timeoutException is None:
-                timeoutException = WaitTimeoutError
-                timeoutExceptionValue = "Event timed out"
-
-            def break_wait():
-                if not obj.closed:
-                    obj.abort(timeoutException, timeoutExceptionValue)
-            main.event_queue.push_after(break_wait, timeout)
-
-        return obj
-
-    def __repr__(self):
-        return "<ValueEvent object at 0x%x, balance=%s, queue=%s, timeout=%s>" % (id(self), self.balance, self.queue, self.timeout)
-
-    def set(self, value=None):
-        """
-        Resume all blocking tasklets by signaling or sending them 'value'.
-        This function will raise an exception if the object is already signaled or aborted.
-        """
-        if self.closed:
-            raise RuntimeError("ValueEvent object already signaled or aborted.")
-
-        while self.queue:
-            self.send(value)
-
-        self.close()
-        self.exception, self.value = RuntimeError, ("Already resumed",)
-
-    def abort(self, exception=None, *value):
-        """
-        Abort all blocking tasklets by raising an exception in them.
-        This function will raise an exception if the object is already signaled or aborted.
-        """
-        if self.closed:
-            raise RuntimeError("ValueEvent object already signaled or aborted.")
-
-        if exception is None:
-            exception, value = self.exception, self.value
-        else:
-            self.exception, self.value = exception, value
-
-        while self.queue:
-            self.send_exception(exception, *value)
-
-        self.close()
-
-    def wait(self):
-        """Wait for the data. If time-out occurs, an exception is raised"""
-        if self.closed:
-            raise self.exception(*self.value)
-
-        return self.receive()
-
 def send_throw(channel, exc, val=None, tb=None):
     """send exceptions over a channel.  Has the same semantics
-       for exc, val and tb as the raise statement has
+       for exc, val and tb as the raise statement has.  Use this
+       for backwards compatibility with versions of stackless that
+       don't have the "send_throw" method on channels.
     """
     if hasattr(channel, "send_throw"):
         return channel.send_throw(exc, val, tb)
@@ -265,7 +189,7 @@ class qchannel(stackless.channel):
 def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_exception=WaitTimeoutError):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
-       (func, args, kwargs) causes asynchronous execution of the function to commence.
+       (func, args, kwargs), causes asynchronous execution of the function to commence.
        If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
     """
     chan = qchannel()
@@ -290,99 +214,11 @@ def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_e
         finally:
             chan.close()
 
-@contextlib.contextmanager
-def released(lock):
-    """A context manager for temporarily releasing and reacquiring a lock
-       using the provide lock's release() and acquire() methods.
-    """
-    lock.release()
-    try:
-        yield
-    finally:
-        lock.acquire()
-
-class dummy_threadpool(object):
-    """
-    A dummy threadpool which always starts a new thread for each request
-    """
-    def __init__(self, stack_size=None):
-        self.stack_size = stack_size
-
-    def stop(self):
-        pass
-
-    def start_thread(self, target):
-        stack_size = self.stack_size
-        if stack_size is not None:
-            prev_stacksize = _realthreading.stack_size()
-            _realthreading.stack_size(stack_size)
-        try:
-            thread = _RealThread(target=target)
-            thread.start()
-            return thread
-        finally:
-            if stack_size is not None:
-                _realthreading.stack_size(prev_stacksize)
-
-    def submit(self, job):
-        self.start_thread(job)
-
-class simple_threadpool(dummy_threadpool):
-    def __init__(self, stack_size=None, n_threads=1):
-        super(simple_threadpool, self).__init__(stack_size)
-        self.threads_max = n_threads
-        self.threads_n = 0          # threads running
-        self.threads_executing = 0  # threads performing work
-        self.cond = _realthreading.Condition()
-        self.queue = collections.deque()
-
-    def stop(self):
-        with self.cond:
-            self.threads_max = 0
-            self.cond.notify_all()
-
-    def submit(self, job):
-        with self.cond:
-            ready = self.threads_n - self.threads_executing
-            if not ready and self.threads_n < self.threads_max:
-                self.threads_n += 1
-                try:
-                    self.start_thread(self._threadfunc)
-                except:
-                    self.threads_n -= 1
-                    raise
-            self.queue.append(job)
-            self.cond.notify()
-
-    def _threadfunc(self):
-        def predicate():
-            return self.threads_n > self.threads_max or self.queue
-
-        with self.cond:
-            try:
-                # Wait for quit or job
-                while True:
-                    self.cond.wait_for(predicate)
-                    if self.threads_n > self.threads_max:
-                        return
-                    job = self.queue.popleft()
-
-                    # Execute job
-                    self.threads_executing += 1
-                    try:
-                        with released(self.cond):
-                            job()
-                    finally:
-                        self.threads_executing -= 1
-                        job = None
-            finally:
-                self.threads_n -= 1
-
-def call_on_thread(function, args=(), kwargs={}, stack_size=None, threadpool=None, timeout=None):
+def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, timeout=None):
     """Run the given function on a different thread and return the result
        This function blocks on a channel until the result is available.
        Ideal for performing OS type tasks, such as saving files or compressing
     """
-    if not threadpool:
-        threadpool = dummy_threadpool(stack_size)
-    return call_async(threadpool.submit, function, args, kwargs, timeout=timeout)
+    if not pool:
+        pool = threadpool.dummy_threadpool(stack_size)
+    return call_async(pool.submit, function, args, kwargs, timeout=timeout)
