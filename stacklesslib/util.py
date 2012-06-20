@@ -3,6 +3,7 @@ import sys
 import stackless
 import contextlib
 import weakref
+import collections
 from . import main
 
 import threading
@@ -88,36 +89,6 @@ class local(object):
             del a[name]
         except KeyError:
             raise AttributeError, name
-
-
-def call_on_thread(target, args=(), kwargs={}, stack_size=None):
-    """Run the given callable on a different thread and return the result
-       This function blocks on a channel until the result is available.
-       Ideal for performing OS type tasks, such as saving files or compressing
-    """
-    chan = stackless.channel()
-    def Helper():
-        try:
-            r = target(*args, **kwargs)
-            chan.send(r)
-        except:
-            e, v = sys.exc_info()[:2]
-            chan.send_exception(e, v)
-        finally:
-            #in break any wait in progress
-            main.mainloop.interrupt_wait()
-    if stack_size is not None:
-        prev_stacksize = _realthreading.stack_size()
-        _realthreading.stack_size(stack_size)
-    try:
-        thread = _RealThread(target=Helper)
-        thread.start()  #can take up to a few ms.  A pool would help here.
-    finally:
-        if stack_size is not None:
-            _realthreading.stack_size(prev_stacksize)
-
-    return chan.receive()
-
 
 class WaitTimeoutError(RuntimeError):
     pass
@@ -211,3 +182,207 @@ class ValueEvent(stackless.channel):
             raise self.exception(*self.value)
 
         return self.receive()
+
+def send_throw(channel, exc, val=None, tb=None):
+    """send exceptions over a channel.  Has the same semantics
+       for exc, val and tb as the raise statement has
+    """
+    if hasattr(channel, "send_throw"):
+        return channel.send_throw(exc, val, tb)
+    #currently, channel.send_exception allows only (type, arg1, ...)
+    #and can"t cope with tb
+    if exc is None:
+        if val is None:
+            val = sys.exc_info()[1]
+        exc = val.__class__
+    elif val is None:
+        if isinstance(type, exc):
+            exc, val = exc, ()
+        else:
+            exc, val = exc.__class__, exc
+    if not isinstance(val, tuple):
+        val = val.args
+    channel.send_exception(exc, *val)
+
+class qchannel(stackless.channel):
+    """
+    A qchannel is like a channel except that it contains a queue, so that the
+    sender never blocks.  If there isn't a blocked tasklet waiting for the data,
+    the data is queued up internally.  The sender always continues.
+    """
+    def __init__(self):
+        self.data_queue = collections.deque()
+        self.preference = 1 #sender never blocks
+
+    @property
+    def balance(self):
+        if self.data_queue:
+            return len(self.data_queue)
+        return super(qchannel, self).balance
+
+    def send(self, data):
+        sup = super(qchannel, self)
+        with atomic():
+            if sup.balance >= 0 and not sup.closing:
+                self.data_queue.append((True, data))
+            else:
+                sup.send(data)
+
+    def send_exception(self, exc, *args):
+        self.send_throw(exc, args)
+
+    def send_throw(self, exc, value=None, tb=None):
+        """call with similar arguments as raise keyword"""
+        sup = super(qchannel, self)
+        with atomic():
+            if sup.balance >= 0 and not sup.closing:
+                self.data_queue.append((False, (exc, value, tb)))
+            else:
+                #deal with channel.send_exception signature
+                send_throw(sup, exc, value, tb)
+
+    def receive(self):
+        with atomic():
+            if not self.data_queue:
+                return super(qchannel, self).receive()
+            ok, data = self.data_queue.popleft()
+            if ok:
+                return data
+            exc, value, tb = data
+            try:
+                raise exc, value, tb
+            finally:
+                tb = None
+
+    #iterator protocol
+    def send_sequence(self, sequence):
+        for i in sequence:
+            self.send(i)
+
+    def __next__(self):
+        return self.receive()
+
+def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_exception=WaitTimeoutError):
+    """Run the given function on a different tasklet and return the result.
+       'dispatcher' must be a callable which, when called with with
+       (func, args, kwargs) causes asynchronous execution of the function to commence.
+       If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
+    """
+    chan = qchannel()
+    def helper():
+        try:
+            try:
+                result = function(*args, **kwargs)
+            except Exception:
+                chan.send_throw(*sys.exc_info())
+            else:
+                chan.send(result)
+            main.mainloop.interrupt_wait() # in case we are on a different thread.
+        except StopIteration:
+            pass # The originator is no longer listening
+
+    # submit the helper to the dispatcher
+    dispatcher(helper)
+    # wait for the result
+    with atomic():
+        try:
+            return channel_wait(chan, timeout)
+        finally:
+            chan.close()
+
+@contextlib.contextmanager
+def released(lock):
+    """A context manager for temporarily releasing and reacquiring a lock
+       using the provide lock's release() and acquire() methods.
+    """
+    lock.release()
+    try:
+        yield
+    finally:
+        lock.acquire()
+
+class dummy_threadpool(object):
+    """
+    A dummy threadpool which always starts a new thread for each request
+    """
+    def __init__(self, stack_size=None):
+        self.stack_size = stack_size
+
+    def stop(self):
+        pass
+
+    def start_thread(self, target):
+        stack_size = self.stack_size
+        if stack_size is not None:
+            prev_stacksize = _realthreading.stack_size()
+            _realthreading.stack_size(stack_size)
+        try:
+            thread = _RealThread(target=target)
+            thread.start()
+            return thread
+        finally:
+            if stack_size is not None:
+                _realthreading.stack_size(prev_stacksize)
+
+    def submit(self, job):
+        self.start_thread(job)
+
+class simple_threadpool(dummy_threadpool):
+    def __init__(self, stack_size=None, n_threads=1):
+        super(simple_threadpool, self).__init__(stack_size)
+        self.threads_max = n_threads
+        self.threads_n = 0          # threads running
+        self.threads_executing = 0  # threads performing work
+        self.cond = _realthreading.Condition()
+        self.queue = collections.deque()
+
+    def stop(self):
+        with self.cond:
+            self.threads_max = 0
+            self.cond.notify_all()
+
+    def submit(self, job):
+        with self.cond:
+            ready = self.threads_n - self.threads_executing
+            if not ready and self.threads_n < self.threads_max:
+                self.threads_n += 1
+                try:
+                    self.start_thread(self._threadfunc)
+                except:
+                    self.threads_n -= 1
+                    raise
+            self.queue.append(job)
+            self.cond.notify()
+
+    def _threadfunc(self):
+        def predicate():
+            return self.threads_n > self.threads_max or self.queue
+
+        with self.cond:
+            try:
+                # Wait for quit or job
+                while True:
+                    self.cond.wait_for(predicate)
+                    if self.threads_n > self.threads_max:
+                        return
+                    job = self.queue.popleft()
+
+                    # Execute job
+                    self.threads_executing += 1
+                    try:
+                        with released(self.cond):
+                            job()
+                    finally:
+                        self.threads_executing -= 1
+                        job = None
+            finally:
+                self.threads_n -= 1
+
+def call_on_thread(function, args=(), kwargs={}, stack_size=None, threadpool=None, timeout=None):
+    """Run the given function on a different thread and return the result
+       This function blocks on a channel until the result is available.
+       Ideal for performing OS type tasks, such as saving files or compressing
+    """
+    if not threadpool:
+        threadpool = dummy_threadpool(stack_size)
+    return call_async(threadpool.submit, function, args, kwargs, timeout=timeout)
