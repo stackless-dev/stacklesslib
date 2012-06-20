@@ -4,7 +4,7 @@ import stackless
 import contextlib
 import weakref
 import socket
-from .main import mainloop, event_queue
+from . import main
 
 import threading
 if hasattr(threading, "real_threading"):
@@ -106,7 +106,7 @@ def call_on_thread(target, args=(), kwargs={}, stack_size=None):
             chan.send_exception(e, v)
         finally:
             #in break any wait in progress
-            mainloop.interrupt_wait()
+            main.mainloop.interrupt_wait()
     if stack_size is not None:
         prev_stacksize = _realthreading.stack_size()
         _realthreading.stack_size(stack_size)
@@ -123,10 +123,10 @@ def call_on_thread(target, args=(), kwargs={}, stack_size=None):
 class WaitTimeoutError(RuntimeError):
     pass
 
-def channel_wait(chan, timeout):
+def channel_wait(chan, timeout=None):
+    """channel.receive with an optional timeout"""
     if timeout is None:
-        chan.receive()
-        return
+        return chan.receive()
 
     waiting_tasklet = stackless.getcurrent()
     def break_wait():
@@ -139,11 +139,10 @@ def channel_wait(chan, timeout):
     with atomic():
         try:
             #schedule the break event after a certain time
-            event_queue.push_after(break_wait, timeout)
+            main.event_queue.push_after(break_wait, timeout)
             return chan.receive()
         finally:
             waiting_tasklet = None
-
 
 class ValueEvent(stackless.channel):
     """
@@ -168,7 +167,7 @@ class ValueEvent(stackless.channel):
             def break_wait():
                 if not obj.closed:
                     obj.abort(timeoutException, timeoutExceptionValue)
-            event_queue.push_after(break_wait, timeout)
+            main.event_queue.push_after(break_wait, timeout)
 
         return obj
 

@@ -331,7 +331,9 @@ class Event(object):
             return self._is_set
 
     def set(self):
-        self._is_set = True
-        for i in range(-self.chan.balance):
-            self.chan.send(None)
+        with atomic():
+            self._is_set = True
+            for i in range(-self.chan.balance):
+                if self.chan.balance:
+                    self.chan.send(None)
 
