@@ -86,7 +86,7 @@ class EventQueue(object):
 
     def pump(self):
         """
-        The worker functino for the main loop to process events in the queue
+        The worker function for the main loop to process events in the queue
         """
         q = self.queue
         if q:
@@ -160,19 +160,40 @@ class LoopScheduler(object):
     def pump(self):
         self.due = False
         for i in xrange(-self.chan.balance):
-            self.chan.send(None)
+            if self.chan.balance:
+                self.chan.send(None)
 
 
 # A mainloop class.
+# It can be subclassed to provide a better interruptable wait, for example on windows
+# using the WaitForSingleObject api, to time out waiting for an event.
+# If no-one wakes up the loop when IO is ready, then the max_wait_time should be made
+# small accordingly.
+# Applications that implement their own loops may find it sufficent to simply
+# call main.pump()
 class MainLoop(object):
     def __init__(self):
-        self.max_wait_time = 1.0
+        self.max_wait_time = 0.01
         self.running = True
         self.break_wait = False
+        self.pumps = []
 
         #take the app global ones.
         self.event_queue = event_queue
         self.scheduler = scheduler
+
+    def add_pump(self, pump):
+        self.pumps.append(pump)
+
+    def remove_pump(self, pump):
+        try:
+            self.pumps.remove(pump)
+        except ValueError:
+            pass
+
+    def pump_pumps(self):
+        for pump in self.pumps:
+            pump()
 
     def get_wait_time(self, time, delay=None):
         """ Get the waitSeconds until the next tasklet is due (0 <= waitSeconds <= delay)  """
@@ -197,7 +218,7 @@ class MainLoop(object):
         """
         self.event_queue.reschedule(deltaSeconds)
 
-    def wait(self, delay):
+    def interruptable_wait(self, delay):
         """Wait until the next event is due.  Override this to break when IO is ready """
         try:
             if delay:
@@ -223,35 +244,42 @@ class MainLoop(object):
         # has added IO to it.
         self.break_wait = True
 
-    def wakeup_tasklets(self, time):
-        """ Perform whatever tasks required to wake up sleeping tasks """
+    def pump(self, run_for=0):
+        """Cause tasklets to wake up.  This includes pumping registered pumps,
+           the event queue and the scheduled
+        """
+        self.pump_pumps()
         self.scheduler.pump()
         self.event_queue.pump()
+        return
 
     def run_tasklets(self, run_for=0):
-        """ Run tasklets for as long as necessary """
+        """ Run runnable tasklets for as long as necessary """
         try:
             return stackless.run(run_for)
         except Exception:
-            self.handle_run_error(sys.exc_info())
+            self.handle_error(sys.exc_info())
 
-    def handle_run_error(self, ei):
+    def handle_error(self, ei):
         traceback.print_exception(*ei)
 
-    def pump(self, run_for=0):
+    def wait(self):
+        """ Wait for the next scheduled event, or IO (if IO can notify us) """
         t = elapsed_time()
         wait_time = self.get_wait_time(t)
         if wait_time:
-            self.wait(wait_time)
-            t = elapsed_time()
-        self.wakeup_tasklets(t + 0.001) #fuzz
-        return self.run_tasklets(run_for=run_for)
+            self.interruptable_wait(wait_time)
 
     def run(self):
+        """Run until stop() gets called"""
         while self.running:
             self.pump()
+            self.run_tasklets()
+            if self.running:
+                self.wait()
 
     def stop(self):
+        """Stop the run"""
         self.running = False
 
     #these two really should be part of the "App" class.
