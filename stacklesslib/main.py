@@ -183,7 +183,8 @@ class MainLoop(object):
         self.scheduler = scheduler
 
     def add_pump(self, pump):
-        self.pumps.append(pump)
+        if pump not in self.pumps:
+            self.pumps.append(pump)
 
     def remove_pump(self, pump):
         try:

@@ -17,22 +17,22 @@ stacklessio = None
 
 
 def patch_all():
-    
+
     patch_misc()
-    
+
     patch_thread()
     patch_threading()
-    
+
     patch_select()
     patch_socket()
     patch_ssl()
-    
+
 
 def patch_misc():
     # Fudge time.sleep.
     import time
     time.sleep = main.sleep
-    
+
     # Fudge popen4 (if it exists).
     import os
     if hasattr(os, "popen4"):
@@ -44,7 +44,7 @@ def patch_thread():
 def patch_threading():
     threading.real_threading = real_threading
     sys.modules["threading"] = threading
-    
+
 def patch_select():
     """ Selectively choose to monkey-patch the 'select' module. """
     if stacklessio:
@@ -61,7 +61,7 @@ def patch_socket(will_be_pumped=True):
     care of polling networking events in a scheduled tasklet.  Otherwise, the
     controlling application is responsible for pumping these events.
     """
-    
+
     if stacklessio:
         from stacklessio import _socket
         sys.modules["_socket"] = _socket
@@ -71,9 +71,11 @@ def patch_socket(will_be_pumped=True):
         socket._sleep_func = main.sleep
         socket._schedule_func = lambda: main.sleep(0)
         if will_be_pumped:
-            socket._manage_sockets_func = lambda: None
+            #We will pump it somehow.  Tell the mainloop to pump it too.
+            socket.stacklesssocket_manager(lambda: None)
+            main.MainLoop.add_pump(socket.pump)
         socket.install()
-        
+
 def patch_ssl():
     """
     Patch using a modified _ssl module which allows wrapping any
@@ -86,7 +88,7 @@ def patch_ssl():
         from cStringIO import StringIO
     except ImportError:
         return
-                
+
     class SocketBio(object):
         """This PyBio for the builtin SSL module implements receive buffering
            for performance"""
@@ -131,7 +133,7 @@ def patch_ssl():
         def __getattr__(self, attr):
             return getattr(self.sock, attr)
 
-    realwrap = _ssl.sslwrap  
+    realwrap = _ssl.sslwrap
     def wrapbio(sock, *args, **kwds):
         bio = SocketBio(sock)
         return util.call_on_thread(realwrap, (bio,)+args, kwds)

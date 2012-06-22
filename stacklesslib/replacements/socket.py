@@ -49,7 +49,7 @@ import time
 import types
 import weakref
 
-import stackless 
+import stackless
 
 # If you pump the scheduler and wish to prevent the scheduler from staying
 # non-empty for prolonged periods of time, If you do not pump the scheduler,
@@ -146,6 +146,10 @@ def StartManager():
     if not managerRunning:
         managerRunning = True
         return stackless.tasklet(ManageSockets)()
+
+def pump():
+    """poll the sockets without waiting"""
+    asyncore.poll(0)
 
 _schedule_func = stackless.schedule
 _manage_sockets_func = StartManager
@@ -342,7 +346,7 @@ class _fakesocket(asyncore_dispatcher):
             return channel.receive()
 
     def _manage_receive_with_timeout(self, channel):
-        if channel.balance < 0:            
+        if channel.balance < 0:
             _sleep_func(self._timeout)
             if channel.balance < 0:
                 channel.send_exception(timeout, "timed out")
@@ -397,7 +401,7 @@ class _fakesocket(asyncore_dispatcher):
         they not wish the connection to potentially establish anyway.
         """
         asyncore_dispatcher.connect(self, address)
-        
+
         # UDP sockets do not connect.
         if self.socket.type != SOCK_DGRAM and not self.connected:
             if not self.connectChannel:
@@ -578,7 +582,7 @@ class _fakesocket(asyncore_dispatcher):
             # The socket has been closed already.
             raise error(EBADF, 'Bad file descriptor')
 
-    def setblocking(self, flag):    
+    def setblocking(self, flag):
         self._blocking = flag
 
     def gettimeout(self):
