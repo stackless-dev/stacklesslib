@@ -7,13 +7,12 @@ from . import main
 from . import util
 from .replacements import thread, threading, popen
 
-# for now stacklessio break things, disable it.
-stacklessio = None
-# try:
-#     import stacklessio
-# except ImportError:
-#     stacklessio = None
-#from . import stacklessio
+# Use stacklessio if available
+try:
+    import stacklessio
+except ImportError:
+    stacklessio = False
+
 
 
 def patch_all():
@@ -73,7 +72,7 @@ def patch_socket(will_be_pumped=True):
         if will_be_pumped:
             #We will pump it somehow.  Tell the mainloop to pump it too.
             socket.stacklesssocket_manager(lambda: None)
-            main.MainLoop.add_pump(socket.pump)
+            main.mainloop.add_pump(socket.pump)
         socket.install()
 
 def patch_ssl():

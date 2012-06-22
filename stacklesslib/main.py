@@ -6,13 +6,10 @@ import time
 import traceback
 
 import stackless
-# for now stacklessio break things, disable it.
-stacklessio = None
-# try:
-#     import stacklessio
-# except ImportError:
-#     stacklessio = None
-#from . import stacklessio
+try:
+    import stacklessio
+except ImportError:
+    stacklessio = None
 
 _sleep = time.sleep # Steal this before monkeypatching occurs.
 
