@@ -10,8 +10,8 @@ from .util import call_async
 
 #defeat monkeypatching of the "threading" module
 if hasattr(threading, "real_threading"):
-    _realthreading = threading.realthreading
-    _RealThread = threading.realthreading.Thread
+    _realthreading = threading.real_threading
+    _RealThread = threading.real_threading.Thread
 else:
     _realthreading = threading
     _RealThread = threading.Thread
