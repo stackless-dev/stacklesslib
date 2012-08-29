@@ -79,7 +79,7 @@ class EventQueue(object):
                 del self.queue[i]
                 heapq.heapify(self.queue) #heapq has no "remove" method
                 return
-        raise ValueError, "event not in queue"
+        raise ValueError("event not in queue")
 
     def pump(self):
         """

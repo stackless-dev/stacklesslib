@@ -4,7 +4,6 @@
 import sys
 import threading as real_threading
 from . import main
-from . import util
 from .replacements import thread, threading, popen
 
 # Use stacklessio if available
@@ -87,6 +86,7 @@ def patch_ssl():
         from cStringIO import StringIO
     except ImportError:
         return
+    from . import util
 
     class SocketBio(object):
         """This PyBio for the builtin SSL module implements receive buffering
@@ -120,8 +120,8 @@ def patch_ssl():
                 if self.sock.gettimeout() == 0.0:
                     return None if name=="read" else 0 #signal EWOULDBLOCK
                 #create the exact same error as the _ssl module would
-                raise _ssl.SSLError, "The %s operation timed out" % (name,)
-            except socket.error, e:
+                raise _ssl.SSLError("The %s operation timed out" % (name,))
+            except socket.error as e:
                 #signal EWOULDBLOCK
                 if e.errno == errno.EWOULDBLOCK:
                     return None if name=="read" else 0
