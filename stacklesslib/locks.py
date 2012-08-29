@@ -47,14 +47,18 @@ class LockMixin(object):
         self.release()
 
 
-class Lock(LockMixin):
-    def __init__(self):
-        self.channel = stackless.channel()
-        set_channel_pref(self.channel)
-        self.owning = None
+class Semaphore(LockMixin):
+    def __init__(self, value=1):
+        if value < 0:
+            raise ValueError
+        self._value = value
+        self._chan = stackless.channel()
+        set_channel_pref(self._chan)
 
     def acquire(self, blocking=True, timeout=None):
         with atomic():
+            # Low contention logic: There is no explicit handoff to a target,
+            # rather, each tasklet gets its own chance at acquiring the semaphore.
             got_it = self._try_acquire()
             if got_it or not blocking:
                 return got_it
@@ -71,27 +75,28 @@ class Lock(LockMixin):
                         if timeout < 0:
                             return False
                 try:
-                    lock_channel_wait(self.channel, timeout)
+                    lock_channel_wait(self._chan, timeout)
                 except:
                     self._safe_pump()
                     raise
                 if self._try_acquire():
                     return True
-
+        
     def _try_acquire(self):
-        if self.owning is None:
-            self.owning = stackless.getcurrent()
+        if self._value > 0:
+            self._value -= 1
             return True
         return False
-
-    def release(self):
+    
+    def release(self, count=1):
         with atomic():
-            self.owning = None
+            self._value += count
             self._pump()
 
     def _pump(self):
-        if not self.owning and self.channel.balance:
-            self.channel.send(None)
+        for i in xrange(min(self._value, -self._chan.balance)):
+            if self._chan.balance:
+                self._chan.send(None)
 
     def _safe_pump(self):
         # Need a special function for this, since we want to call it from
@@ -103,42 +108,60 @@ class Lock(LockMixin):
             pass
 
 
+class BoundedSemaphore(Semaphore):
+    def __init__(self, value=1):
+        Semaphore.__init__(self, value)
+        self._max_value = value
+
+    def release(self, count=1):
+        with atomic():
+            if self._value + count > self._max_value:
+                raise ValueError
+            super(BoundedSemaphore, self).release(count)
+
+
+class Lock(Semaphore):
+    def __init__(self):
+        super(Lock, self).__init__() #force a count of 1
+
+
 class RLock(Lock):
     def __init__(self):
         Lock.__init__(self)
-        self.recursion = 0
+        self._owning = None
+        self._locked = 0
 
     def _try_acquire(self):
-        if self.owning is None or self.owning is stackless.getcurrent():
-            self.owning = stackless.getcurrent()
-            self.recursion += 1
-            return True
-        return False
+        if not (super(RLock, self)._try_acquire() or self._owning == stackless.getcurrent()):
+            return False   
+        self._owning = stackless.getcurrent()
+        self._locked += 1
+        return True
 
     def release(self):
-        if self.owning is not stackless.getcurrent():
+        if self._owning is not stackless.getcurrent():
             raise RuntimeError("cannot release un-aquired lock")
         with atomic():
-            self.recursion -= 1
-            if not self.recursion:
-                self.owning = None
-                self._pump()
+            self._locked -= 1
+            if not self._locked:
+                self._owning = None
+                super(Lock, self).release();
 
     # These three functions form an internal interface for the Condition.
     # It allows the Condition instances to release the lock from any
-    # recursion level and reaquire it to the same level.
+    # recursion level and reacquire it to the same level.
     def _is_owned(self):
-        return self.owning is stackless.getcurrent()
+        return self._owning is stackless.getcurrent()
 
     def _release_save(self):
-        r = self.owning, self.recursion
-        self.owning, self.recursion = None, 0
-        self._pump()
+        r = self._locked
+        self._locked = 1
+        self.release()
         return r
 
     def _acquire_restore(self, r):
         self.acquire()
-        self.owning, self.recursion = r
+        self._locked = r
 
 
 def wait_for_condition(cond, predicate, timeout=None):
@@ -161,6 +184,7 @@ def wait_for_condition(cond, predicate, timeout=None):
         cond.wait(timeout)
         result = predicate()
     return result
+
 
 class Condition(LockMixin):
     def __init__(self, lock=None):
@@ -277,50 +301,6 @@ class NLCondition(LockMixin):
     def acquire(self):
         pass
     release = acquire
-
-
-class Semaphore(LockMixin):
-    def __init__(self, value=1):
-        if value < 0:
-            raise ValueError
-        self._value = value
-        self._chan = stackless.channel()
-        set_channel_pref(self._chan)
-
-    def acquire(self, blocking=True, timeout=None):
-        with atomic():
-            if self._value > 0:
-                self._value -= 1;
-                return True
-            if not blocking:
-                return False
-            return lock_channel_wait(self._chan, timeout)
-
-    def release(self, count=1):
-        with atomic():
-            for i in xrange(count):
-                if self._chan.balance:
-                    assert self._value == 0
-                    self._chan.send(None)
-                else:
-                    self._value += 1
-
-
-class BoundedSemaphore(Semaphore):
-    def __init__(self, value=1):
-        Semaphore.__init__(self, value)
-        self._max_value = value
-
-    def release(self, count=1):
-        with atomic():
-            for i in xrange(count):
-                if self._chan.balance:
-                    assert self._value == 0
-                    self._chan.send(None)
-                else:
-                    if self._value == self._max_value:
-                        raise ValueError
-                    self._value += 1
 
 
 class Event(object):
