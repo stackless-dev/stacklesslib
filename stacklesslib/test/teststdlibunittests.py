@@ -8,10 +8,11 @@ TODO:
 """
 
 from __future__ import absolute_import
+from __future__ import print_function
 
 # Ruin wonderful PEP-8 ordering with pre-emptive monkey-patch.
-import stacklesslib.magic
-stacklesslib.magic.monkeypatch()
+import stacklesslib.monkeypatch
+stacklesslib.monkeypatch.patch_all()
 
 
 import asyncore
@@ -27,20 +28,27 @@ elapsed_time = stacklesslib.main.elapsed_time
 
 
 def run_unittests():
+    from test import test_threading
     from test import test_socket
     from test import test_urllib
     from test import test_urllib2
     from test import test_xmlrpc
 
-    print "** run_unittests.test_socket"
+    print("** run_unittests.test_threading")
+    #disable the evil real-thread async test
+    import sys
+    sys.modules["ctypes"] = None
+    test_threading.test_main()
+    del sys.modules["ctypes"]
+    print("** run_unittests.test_socket")
     test_socket.test_main()
-    print "** run_unittests.test_urllib"
+    print("** run_unittests.test_urllib")
     test_urllib.test_main()
-    print "** run_unittests.test_urllib2"
+    print("** run_unittests.test_urllib2")
     test_urllib2.test_main()
-    print "** run_unittests.test_xmlrpc"
+    print("** run_unittests.test_xmlrpc")
     test_xmlrpc.test_main()
-    print "** run_unittests - done"
+    print("** run_unittests - done")
 
 
 def new_tasklet(f, *args, **kwargs):
@@ -59,16 +67,17 @@ if __name__ == "__main__":
         wait_time = stacklesslib.main.mainloop.get_wait_time(tick_time)
 
         try:
+            stackless.run()
             stacklesslib.main.mainloop.pump()
-            asyncore.poll(0.05)
-        except Exception, e:
+            #asyncore.poll(0.05)
+        except Exception as e:
             import asyncore
             if isinstance(e, ReferenceError):
-                print "run:EXCEPTION", str(e), asyncore.socket_map
+                print("run:EXCEPTION", str(e), asyncore.socket_map)
             else:
-                print "run:EXCEPTION", asyncore.socket_map
+                print("run:EXCEPTION", asyncore.socket_map)
                 traceback.print_exc()
             sys.exc_clear()
 
         if False and elapsed_time() - tick_time > 0.1:
-            print "Pump took too long: %0.5f" % (elapsed_time() - tick_time)
+            print("Pump took too long: %0.5f" % (elapsed_time() - tick_time))
