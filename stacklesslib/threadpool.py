@@ -6,6 +6,7 @@ import collections
 import threading
 
 from . import locks
+from .util import call_async
 
 #defeat monkeypatching of the "threading" module
 if hasattr(threading, "real_threading"):
@@ -92,3 +93,12 @@ class simple_threadpool(dummy_threadpool):
                         job = None
             finally:
                 self.threads_n -= 1
+
+def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, timeout=None):
+    """Run the given function on a different thread and return the result
+       This function blocks on a channel until the result is available.
+       Ideal for performing OS type tasks, such as saving files or compressing
+    """
+    if not pool:
+        pool = dummy_threadpool(stack_size)
+    return call_async(pool.submit, function, args, kwargs, timeout=timeout)

@@ -4,7 +4,7 @@ import stackless
 import contextlib
 import weakref
 import collections
-from . import main, threadpool
+from . import main
 
 
 @contextlib.contextmanager
@@ -79,7 +79,7 @@ class local(object):
         try:
             del a[name]
         except KeyError:
-            raise AttributeError, name
+            raise AttributeError(name)
 
 class WaitTimeoutError(RuntimeError):
     pass
@@ -213,12 +213,3 @@ def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_e
             return channel_wait(chan, timeout)
         finally:
             chan.close()
-
-def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, timeout=None):
-    """Run the given function on a different thread and return the result
-       This function blocks on a channel until the result is available.
-       Ideal for performing OS type tasks, such as saving files or compressing
-    """
-    if not pool:
-        pool = threadpool.dummy_threadpool(stack_size)
-    return call_async(pool.submit, function, args, kwargs, timeout=timeout)
