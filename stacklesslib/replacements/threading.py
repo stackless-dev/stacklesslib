@@ -9,6 +9,7 @@ import weakref
 import stackless
 
 from stacklesslib.locks import Lock, RLock, Semaphore, Condition, BoundedSemaphore, Event
+from stacklesslib.locks import Barrier, BrokenBarrierError
 from stacklesslib.main import set_channel_pref, sleep
 from stacklesslib.util import local
 import stacklesslib.replacements.thread as thread
