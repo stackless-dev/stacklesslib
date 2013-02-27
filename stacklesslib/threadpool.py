@@ -101,4 +101,12 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, tim
     """
     if not pool:
         pool = dummy_threadpool(stack_size)
-    return call_async(pool.submit, function, args, kwargs, timeout=timeout)
+    # A dispatcher which wraps the function so that it will wake up the main thread when it is done
+    def dispathcer(callable, args, kwds):
+        def wrap_wakeup():
+            try:
+                return callable(*args, **kwds)
+            finally:
+                main.mainloop.interrupt_wait()
+        pool.submit(wrap_wakeup)
+    return call_async(dispatcher, function, args, kwargs, timeout=timeout)

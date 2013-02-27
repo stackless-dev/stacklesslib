@@ -198,10 +198,9 @@ def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_e
             try:
                 result = function(*args, **kwargs)
             except Exception:
-                chan.send_throw(*sys.exc_info())
+                send_throw(chan, *sys.exc_info())
             else:
                 chan.send(result)
-            main.mainloop.interrupt_wait() # in case we are on a different thread.
         except StopIteration:
             pass # The originator is no longer listening
 
