@@ -52,8 +52,7 @@ class Semaphore(LockMixin):
         if value < 0:
             raise ValueError
         self._value = value
-        self._chan = stackless.channel()
-        set_channel_pref(self._chan)
+        self._chan = None # Created on demand if contented.
 
     def acquire(self, blocking=True, timeout=None):
         with atomic():
@@ -86,6 +85,10 @@ class Semaphore(LockMixin):
         if self._value > 0:
             self._value -= 1
             return True
+        if not self._chan:
+            # Lazy creation of the channel
+            self._chan = stackless.channel()
+            set_channel_pref(self._chan)
         return False
     
     def release(self, count=1):
@@ -94,6 +97,8 @@ class Semaphore(LockMixin):
             self._pump()
 
     def _pump(self):
+        if not self._chan:
+            return
         for i in xrange(min(self._value, -self._chan.balance)):
             if self._chan.balance:
                 self._chan.send(None)
@@ -283,10 +288,12 @@ class NLCondition(LockMixin):
         """
         return wait_for_condition(self, predicate, timeout)
 
-    def notify(self):
+    def notify(self, n=1):
         with atomic():
-            if self._chan.balance:
-                self._chan.send(None)
+            n = min(n, -self._chan.balance)
+            for i in range(n):
+                if self._chan.balance:
+                    self._chan.send(None)
 
     def notify_all(self):
         with atomic():
@@ -297,10 +304,11 @@ class NLCondition(LockMixin):
 
     notifyAll = notify_all
 
-    #no-ops for the acquire and release
-    def acquire(self):
+    # no-ops for the acquire and release.  They prentend to successfully lock
+    def acquire(self, blocking=True, timeout=None):
+        return True
+    def release(self):
         pass
-    release = acquire
 
 
 class Event(object):
