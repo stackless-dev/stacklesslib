@@ -16,6 +16,7 @@ import contextlib
 from . import main
 from .main import set_channel_pref, elapsed_time
 from .util import atomic, channel_wait, WaitTimeoutError
+from .basiclock import LockMixin
 
 
 @contextlib.contextmanager
@@ -38,13 +39,6 @@ def lock_channel_wait(chan, timeout):
         return True
     except WaitTimeoutError:
         return False
-
-
-class LockMixin(object):
-    def __enter__(self):
-        self.acquire()
-    def __exit__(self, exc, val, tb):
-        self.release()
 
 
 class Semaphore(LockMixin):
@@ -81,13 +75,13 @@ class Semaphore(LockMixin):
                     raise
                 if self._try_acquire():
                     return True
-        
+
     def _try_acquire(self):
         if self._value > 0:
             self._value -= 1
             return True
         return False
-    
+
     def release(self, count=1):
         with atomic():
             self._value += count
@@ -133,7 +127,7 @@ class RLock(Lock):
 
     def _try_acquire(self):
         if not (super(RLock, self)._try_acquire() or self._owning == stackless.getcurrent()):
-            return False   
+            return False
         self._owning = stackless.getcurrent()
         self._locked += 1
         return True
@@ -145,7 +139,7 @@ class RLock(Lock):
             self._locked -= 1
             if not self._locked:
                 self._owning = None
-                super(Lock, self).release();
+                super(RLock, self).release();
 
     # These three functions form an internal interface for the Condition.
     # It allows the Condition instances to release the lock from any

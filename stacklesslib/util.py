@@ -4,18 +4,11 @@ import stackless
 import contextlib
 import weakref
 import collections
-from . import main
+from . import events
+from . import basiclock
 
 
-@contextlib.contextmanager
-def atomic():
-    """a context manager to make the tasklet atomic for the duration"""
-    c = stackless.getcurrent()
-    old = c.set_atomic(True)
-    try:
-        yield
-    finally:
-        c.set_atomic(old)
+atomic = basiclock.atomic
 
 @contextlib.contextmanager
 def block_trap(trap=True):
@@ -81,38 +74,78 @@ class local(object):
         except KeyError:
             raise AttributeError(name)
 
-class WaitTimeoutError(RuntimeError):
+class _TimeoutError(RuntimeError):
     pass
 
-def channel_wait(chan, timeout=None):
-    """channel.receive with an optional timeout"""
-    if timeout is None:
-        return chan.receive()
+class TimeoutError(RuntimeError):
+    pass
 
-    waiting_tasklet = stackless.getcurrent()
-    def break_wait():
-        #careful to only timeout if it is still blocked.  This ensures
-        #that a successful channel.send doesn't simultaneously result in
-        #a timeout, which would be a terrible source of race conditions.
-        with atomic():
-            if waiting_tasklet and waiting_tasklet.blocked:
-                waiting_tasklet.raise_exception(WaitTimeoutError)
-    with atomic():
+class timeout(object):
+    """A timeout context manager"""
+    def __init__(self, timeout=None):
+        self.timeout=timeout
+
+    def __enter__(self):
+        if self.timeout is None or timeout < 0:
+            return
+        self.tasklet = stackless.getcurrent()
+        # By necessity, this is also an "atomic" context manager.  I don't want
+        # to try to solve all the race conditions possible if execution can
+        # be interrupted anywhere, even within the __enter__ / __exit__ thingies.
+        self.atomic = self.tasklet.set_atomic(True)
         try:
-            #schedule the break event after a certain time
-            main.event_queue.push_after(break_wait, timeout)
-            return chan.receive()
-        finally:
-            waiting_tasklet = None
+            main.event_queue.push_after(self.break_wait, self.timeout)
+        except:
+            self.tasklet.set_atomic(self.atomic)
+            raise
 
-def send_throw(channel, exc, val=None, tb=None):
+    def __exit__(self, exc, val, tb):
+        t = self.tasklet
+        self.tasklet = None
+        try:
+            # Special magic.  For nested timeout calls, we don't want to invoke
+            # exception handlers on inner instances.  Therefore we throw a
+            # hidden exception type and only convert it to a proper timeout
+            # error when we reach "us"
+            if exc is _TimeoutError and val.args[0] is self:
+                # our exception! Convert it to a proper TimeoutError
+                raise TimeoutError, None, tb
+        finally:
+            t.set_atomic(self.atomic)
+
+    def break_wait(self):
+        with atomic():
+            if self.tasklet and self.tasklet.blocked:
+                self.tasklet.raise_exception(_TimeoutError(self))
+
+def blocking_op_timeout(function, args, timeout):
+    """Perform a blocking operation with a timeout"""
+    if timeout is None or timeout < 0:
+        return function(*args)
+
+    with timeout(timeout):
+        return function(args)
+
+# Three helper functions for channels, or other objects that support
+# send and receive operations, adding a timeout to these operations.
+
+def send(chan, data, timeout=None):
+    """Perform a "send" operation with a timeout"""
+    return blocking_op_timeout(chan.send, (data,), timeout)
+
+def receive(chan, timeout=None):
+    """Perform a "receive" operation with a timeout"""
+    return blocking_op_timeout(chan.receive, (), timeout)
+
+def send_throw(channel, exc, val=None, tb=None, timeout=None):
     """send exceptions over a channel.  Has the same semantics
        for exc, val and tb as the raise statement has.  Use this
        for backwards compatibility with versions of stackless that
        don't have the "send_throw" method on channels.
     """
     if hasattr(channel, "send_throw"):
-        return channel.send_throw(exc, val, tb)
+        return blocking_op_timeout(channel.send_throw, (exc, val, tb), timeout)
+
     #currently, channel.send_exception allows only (type, arg1, ...)
     #and can"t cope with tb
     if exc is None:
@@ -126,7 +159,7 @@ def send_throw(channel, exc, val=None, tb=None):
             exc, val = exc.__class__, exc
     if not isinstance(val, tuple):
         val = val.args
-    channel.send_exception(exc, *val)
+    blocking_op_timeout(channel.send_exception, (exc, *val), timeout)
 
 class qchannel(stackless.channel):
     """
@@ -186,15 +219,41 @@ class qchannel(stackless.channel):
     def __next__(self):
         return self.receive()
 
+class result(qchannel):
+    """a result is a single-use qchannel.  It is useful to send a single
+       result from one tasklet or the other.
+    """
+    def receive(self):
+        with atomic():
+            try:
+                return super(result, self).receive()
+            finally:
+                self.close()
+
+    def send(self, value):
+        try:
+            super(result, self).send(value)
+            self.close()
+        except StopIteration:
+            #the listener has stopped listening.
+            pass
+
+    def send_throw(self, exc, value=None, tb=None):
+        try:
+            super(result, self).send_throw(exc, value, tb)
+            self.close()
+        except StopIteration:
+            #the listener has stopped listening.
+            pass
+
 def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_exception=WaitTimeoutError):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
        (func, args, kwargs), causes asynchronous execution of the function to commence.
        If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
     """
-    chan = qchannel()
+    chan = result()
     def helper():
-        try:
             try:
                 result = function(*args, **kwargs)
             except Exception:
@@ -202,14 +261,8 @@ def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_e
             else:
                 chan.send(result)
             main.mainloop.interrupt_wait() # in case we are on a different thread.
-        except StopIteration:
-            pass # The originator is no longer listening
 
     # submit the helper to the dispatcher
     dispatcher(helper)
     # wait for the result
-    with atomic():
-        try:
-            return channel_wait(chan, timeout)
-        finally:
-            chan.close()
+    return channel_wait(chan, timeout)
