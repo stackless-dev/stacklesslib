@@ -50,6 +50,9 @@ import types
 import weakref
 
 import stackless
+from stacklesslib.util import send_throw
+
+log = logging.getLogger(__name__)
 
 # If you pump the scheduler and wish to prevent the scheduler from staying
 # non-empty for prolonged periods of time, If you do not pump the scheduler,
@@ -198,6 +201,9 @@ class _socketobject_new(_socketobject_old):
         sock.wasConnected = True
         return _socketobject_new(_sock=sock), addr
 
+    def setblockingsend(self, flag=None):
+        self._sock.setblockingsend(flag)
+
     accept.__doc__ = _socketobject_old.accept.__doc__
 
 def make_blocking_socket(family=AF_INET, type=SOCK_STREAM, proto=0):
@@ -322,6 +328,7 @@ class _fakesocket(asyncore_dispatcher):
         self.readQueue = deque()
         self.writeQueue = deque()
         self.sendToBuffers = deque()
+        self._blockingsend = True # Default behaviour is to block and wait for result for send()
 
         if can_timeout():
             self._timeout = stdsocket.getdefaulttimeout()
@@ -344,7 +351,8 @@ class _fakesocket(asyncore_dispatcher):
             try:
                 ret = channel.receive()
             except BaseException, e:
-                raise e
+                log.debug('sock %d, receive exception %r', id(self), e)
+                raise
             return ret
         else:
             return channel.receive()
@@ -415,18 +423,34 @@ class _fakesocket(asyncore_dispatcher):
                 self.connectChannel.preference = 1
             self.receive_with_timeout(self.connectChannel)
 
-    def _send(self, data, flags):
+    def _send(self, data, flags, nowait=False):
         self._ensure_connected()
 
-        channel = make_channel()
-        channel.preference = 1 # Prefer the sender.
+        if not nowait:
+            channel = make_channel()
+            channel.preference = 1 # Prefer the sender.
+        else:
+            channel = None
         self.writeQueue.append((channel, flags, data))
-        return self.receive_with_timeout(channel)
+        if channel:
+            return self.receive_with_timeout(channel)
+
+    def setblockingsend(self, flag=None):
+        old = self._blockingsend
+        if flag is not None:
+            self._blockingsend = flag
+        return old
 
     def send(self, data, flags=0):
+        if not self._blockingsend:
+            self._send(data, flags, True)
+            return len(data)
         return self._send(data, flags)
 
     def sendall(self, data, flags=0):
+        if not self._blockingsend:
+            self._send(data, flags, True)
+            return
         while len(data):
             nbytes = self._send(data, flags)
             if nbytes == 0:
@@ -458,6 +482,7 @@ class _fakesocket(asyncore_dispatcher):
         self._ensure_non_blocking_read()
 
         if self._fileno is None:
+            log.debug("sock %d, self._fileno is None", id(self))
             return ""
 
         if len(args) >= sizeIdx+1:
@@ -467,33 +492,24 @@ class _fakesocket(asyncore_dispatcher):
         else:
             generalArgs = args
         #print self._fileno, "_recv:---ENTER---", (methodName, args)
-        while True:
-            channel = None
-            if self.lastReadChannelRef is not None and self.lastReadTally < VALUE_MAX_NONBLOCKINGREAD_SIZE and self.lastReadCalls < VALUE_MAX_NONBLOCKINGREAD_CALLS:
-                channel = self.lastReadChannelRef()
-                self.lastReadChannelRef = None
-            #elif self.lastReadTally >= VALUE_MAX_NONBLOCKINGREAD_SIZE or self.lastReadCalls >= VALUE_MAX_NONBLOCKINGREAD_CALLS:
-                #print "_recv:FORCE-CHANNEL-CHANGE %d %d" % (self.lastReadTally, self.lastReadCalls)
+        channel = None
+        if self.lastReadChannelRef is not None and self.lastReadTally < VALUE_MAX_NONBLOCKINGREAD_SIZE and self.lastReadCalls < VALUE_MAX_NONBLOCKINGREAD_CALLS:
+            channel = self.lastReadChannelRef()
+            self.lastReadChannelRef = None
+        #elif self.lastReadTally >= VALUE_MAX_NONBLOCKINGREAD_SIZE or self.lastReadCalls >= VALUE_MAX_NONBLOCKINGREAD_CALLS:
+            #print "_recv:FORCE-CHANNEL-CHANGE %d %d" % (self.lastReadTally, self.lastReadCalls)
 
-            if channel is None:
-                channel = make_channel()
-                channel.preference = -1 # Prefer the receiver.
-                self.lastReadTally = self.lastReadCalls = 0
-                #print self._fileno, "_recv:NEW-CHANNEL", id(channel)
-                self.readQueue.append([ channel, methodName, args ])
-            else:
-                self.readQueue[0][1:] = (methodName, args)
-                #print self._fileno, "_recv:RECYCLE-CHANNEL", id(channel), self.lastReadTally
+        if channel is None:
+            channel = make_channel()
+            channel.preference = -1 # Prefer the receiver.
+            self.lastReadTally = self.lastReadCalls = 0
+            #print self._fileno, "_recv:NEW-CHANNEL", id(channel)
+            self.readQueue.append([ channel, methodName, args ])
+        else:
+            self.readQueue[0][1:] = (methodName, args)
+            #print self._fileno, "_recv:RECYCLE-CHANNEL", id(channel), self.lastReadTally
 
-            try:
-                ret = self.receive_with_timeout(channel)
-            except stdsocket.error, e:
-                if isinstance(e, stdsocket.error) and e.args[0] == EWOULDBLOCK:
-                    #print self._fileno, "_recv:BLOCK-RETRY", id(channel), "-" * 30
-                    continue
-                else:
-                    raise
-            break
+        ret = self.receive_with_timeout(channel)
 
         #storing the last channel is a way to communicate with the producer tasklet, so that it
         #immediately tries to read more, when we do the next receive.  This is to optimize cases
@@ -557,7 +573,7 @@ class _fakesocket(asyncore_dispatcher):
 
     def _clear_queue(self, queue, *args):
         for t in queue:
-            if t[0].balance < 0:
+            if t[0] and t[0].balance < 0:
                 if len(args):
                     t[0].send_exception(*args)
                 else:
@@ -637,7 +653,7 @@ class _fakesocket(asyncore_dispatcher):
         self.close()
 
     def handle_error(self):
-        self.close()
+        log.exception("Unexpected error")
 
     def handle_read(self):
         """
@@ -675,38 +691,54 @@ class _fakesocket(asyncore_dispatcher):
             return
 
         channel, methodName, args = self.readQueue[0]
-        fn = getattr(self.socket, methodName)
         #print self._fileno, "handle_read:---ENTER---", id(channel)
         while channel.balance < 0:
             args = self.readQueue[0][2]
             #print self._fileno, "handle_read:CALL", id(channel), args
             try:
-                result = fn(*args)
-                #print self._fileno, "handle_read:RESULT", id(channel), len(result)
+                try:
+                    result = getattr(self.socket, methodName)(*args)
+                    #print self._fileno, "handle_read:RESULT", id(channel), len(result)
+                except stdsocket.error as e:
+                    if e.errno == EWOULDBLOCK:
+                        return # sometimes get this on windows
+                    raise
             except Exception, e:
-                # winsock sometimes throws ENOTCONN
-                #print self._fileno, "handle_read:EXCEPTION", id(channel), len(result)
-                if isinstance(e, stdsocket.error) and e.args[0] in [ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED]:
-                    self.handle_close()
-                    result = ''
-                elif channel.balance < 0:
-                    channel.send_exception(e.__class__, *e.args)
-
-            if channel.balance < 0:
+                log.debug('sock %d, read method %s error %r, throwing it', id(self), methodName, e)
+                send_throw(channel, *sys.exc_info())
+            else:
+                # don't len() the result, it may be int, tuple, etc. for recvfrom, recvinto, etc.
                 #print self._fileno, "handle_read:RETURN-RESULT", id(channel), len(result)
+                log.debug('sock %d, read method %s with args %r, sending it', id(self), methodName, args)
                 channel.send(result)
 
         if len(self.readQueue) and self.readQueue[0][0] is channel:
             del self.readQueue[0]
         #print self._fileno, "handle_read:---EXIT---", id(channel)
 
+    def _merge_nbsends(self, data, flags):
+        #attempt to merge several nonblocking sends into one
+        try:
+            if len(self.writeQueue):
+                d = []
+                # pull them off as long as they are non=blocking and flags are the same
+                while self.writeQueue and self.writeQueue[0][0] is None and self.writeQueue[0][1] == flags:
+                    d.append(self.writeQueue.popleft())
+                # Be sure to support memory view objects that we get sent sometimes
+                def tobytes(s):
+                    return s.tobytes() if isinstance(s, memoryview) else s
+                data = tobytes(data) +  "".join(tobytes(e[2]) for e in d)
+        except Exception, e:
+            import logging
+            logging.exception("****shit got real")
+        return data, flags
+
     def handle_write(self):
         """
         This function still needs work WRT UDP.
         """
         if len(self.writeQueue):
-            channel, flags, data = self.writeQueue[0]
-            del self.writeQueue[0]
+            channel, flags, data = self.writeQueue.popleft()
 
             # asyncore does not expose sending the flags.
             def asyncore_send(self, data, flags=0):
@@ -717,17 +749,29 @@ class _fakesocket(asyncore_dispatcher):
                     # logging.root.exception("SOME SEND ERROR")
                     if why.args[0] == EWOULDBLOCK:
                         return 0
+                    raise
 
-                    # Ensure the sender appears to have directly received this exception.
-                    channel.send_exception(why.__class__, *why.args)
+            if channel:
+                try:
+                    nbytes = asyncore_send(self, data, flags)
+                except Exception, e:
+                    if channel.balance < 0:
+                        channel.send_exception(type(e), e.args)
+                else:
+                    if channel.balance < 0:
+                        channel.send(nbytes)
+            else:
+                #its a non-blocking sendall
+                data, flags = self._merge_nbsends(data, flags)
+                try:
+                    nbytes = asyncore_send(self, data, flags)
+                    data = data[nbytes:]
+                except Exception, e:
+                    log.info("exception during non-blocking send: %r", e)
+                else:
+                    if data:
+                        self.writeQueue.appendleft(None, flags, data)
 
-                    if why.args[0] in (ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED):
-                        self.handle_close()
-                    return 0
-
-            nbytes = asyncore_send(self, data, flags)
-            if channel.balance < 0:
-                channel.send(nbytes)
         elif len(self.sendToBuffers):
             data, address, channel, oldSentBytes = self.sendToBuffers[0]
             sentBytes = self.socket.sendto(data, address)
