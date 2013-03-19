@@ -186,17 +186,24 @@ class qchannel(stackless.channel):
     def __next__(self):
         return self.receive()
 
-def call_async(dispatcher, function, args=(), kwargs={}, timeout=None, timeout_exception=WaitTimeoutError):
+def tasklet_dispatcher(function):
+    """
+    A sipmle dispatcher which causes the function to start running on a new tasklet
+    """
+    stackless.tasklet(function)()
+
+def call_async(function, dispatcher=tasklet_dispatcher, timeout=None, timeout_exception=WaitTimeoutError):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
-       (func, args, kwargs), causes asynchronous execution of the function to commence.
+       (func), causes asynchronous execution of the function to commence.
        If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
     """
     chan = qchannel()
     def helper():
+        """This helper marshals the result value over the channel"""
         try:
             try:
-                result = function(*args, **kwargs)
+                result = function()
             except Exception:
                 send_throw(chan, *sys.exc_info())
             else:
