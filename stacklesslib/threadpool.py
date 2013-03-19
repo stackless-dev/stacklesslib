@@ -5,7 +5,7 @@ Threadpool classes.  These are used when we want to dispatch work to happen on "
 import collections
 import threading
 
-from . import locks
+from . import locks, main
 from .util import call_async
 
 #defeat monkeypatching of the "threading" module
@@ -104,7 +104,7 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, tim
     # Wrap the function so that it will wake up the main thread when it is done
     def wrapped():
         try:
-            return function(*args, **kwds)
+            return function(*args, **kwargs)
         finally:
             main.mainloop.interrupt_wait()
     def dispatcher(function):
