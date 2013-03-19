@@ -132,7 +132,7 @@ def ManageSockets():
     global managerRunning
 
     try:
-        while len(asyncore.socket_map) && managerRunning:
+        while len(asyncore.socket_map) and managerRunning:
             # Check the sockets for activity.
             #print "POLL"
             asyncore.poll(poll_interval)

@@ -203,6 +203,8 @@ class MainLoop(object):
 
     def get_wait_time(self, time, delay=None):
         """ Get the waitSeconds until the next tasklet is due (0 <= waitSeconds <= delay)  """
+        if stackless.runcount > 1:
+            return 0.0 # If a tasklet is runnable we do not wait at all.
         if self.scheduler.is_due:
             return 0.0
         if delay is None:
@@ -250,7 +252,7 @@ class MainLoop(object):
         # has added IO to it.
         self.break_wait = True
 
-    def raw_sleep(self, delay)
+    def raw_sleep(self, delay):
         _sleep(delay)
 
     def pump(self, run_for=0):
