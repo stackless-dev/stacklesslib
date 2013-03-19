@@ -11,6 +11,14 @@ try:
 except ImportError:
     stacklessio = None
 
+stacklessio = None # Disabled
+asyncore = None
+if not stacklessio:
+    try:
+        import asyncore
+    except ImportError:
+        pass
+
 _sleep = time.sleep # Steal this before monkeypatching occurs.
 
 # Get the best wallclock time to use.
@@ -233,7 +241,7 @@ class MainLoop(object):
                     remaining = t1-now
                     if remaining <= 0.0:
                         break
-                    _sleep(min(remaining, 0.01))
+                    self.raw_sleep(min(remaining, 0.01))
         finally:
             self.break_wait = False
 
@@ -241,6 +249,9 @@ class MainLoop(object):
         # If another thread wants to interrupt the mainloop, e.g. if it
         # has added IO to it.
         self.break_wait = True
+
+    def raw_sleep(self, delay)
+        _sleep(delay)
 
     def pump(self, run_for=0):
         """Cause tasklets to wake up.  This includes pumping registered pumps,
@@ -296,6 +307,11 @@ class SLIOMainLoop(MainLoop):
     def interrupt_wait(self):
         stacklessio.break_wait()
 
+class AsyncoreMainLoop(MainLoop):
+    """If we use asyncore, we use its wait function, rather than sleep"""
+    def raw_wait(self, delay):
+        asyncore.poll(delay)
+
 
 # Convenience functions to sleep in the global scheduler.
 def sleep(delay):
@@ -304,12 +320,14 @@ def sleep_next():
     mainloop.sleep_next()
 
 
-# Disable preferred socket solution of stacklessio for now.
+# Use the correct main loop type.
 if stacklessio:
-    mainloop = SLIOMainLoop
+    mainloopClass = SLIOMainLoop
+elif asyncore:
+    mainloopClass = AsyncoreMainLoop
 else:
-    mainloop = MainLoop
+    mainloopClass = MainLoop
 
 event_queue = EventQueue()
 scheduler = LoopScheduler(event_queue)
-mainloop = MainLoop()
+mainloop = mainloopClass()

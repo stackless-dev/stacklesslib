@@ -70,7 +70,8 @@ def patch_socket(will_be_pumped=True):
         socket._schedule_func = lambda: main.sleep(0)
         if will_be_pumped:
             #We will pump it somehow.  Tell the mainloop to pump it too.
-            socket.stacklesssocket_manager(lambda: None)
+            socket.stacklesssocket_manager(None)
+            socket.StopManager()
             main.mainloop.add_pump(socket.pump)
         socket.install()
 

@@ -132,7 +132,7 @@ def ManageSockets():
     global managerRunning
 
     try:
-        while len(asyncore.socket_map):
+        while len(asyncore.socket_map) && managerRunning:
             # Check the sockets for activity.
             #print "POLL"
             asyncore.poll(poll_interval)
@@ -146,6 +146,9 @@ def StartManager():
     if not managerRunning:
         managerRunning = True
         return stackless.tasklet(ManageSockets)()
+def StopManager():
+    global managerRunning
+    managerRunning = False
 
 def pump():
     """poll the sockets without waiting"""
@@ -183,7 +186,8 @@ class _socketobject_new(_socketobject_old):
         if _sock is None:
             _sock = _realsocket_old(family, type, proto)
             _sock = _fakesocket(_sock)
-            _manage_sockets_func()
+            if _manage_sockets_func:
+                _manage_sockets_func()
         _socketobject_old.__init__(self, family, type, proto, _sock)
         if not isinstance(self._sock, _fakesocket):
             raise RuntimeError("bad socket")
