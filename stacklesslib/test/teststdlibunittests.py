@@ -68,12 +68,8 @@ if __name__ == "__main__":
     while run_unittests_tasklet.alive:
         tick_time = elapsed_time()
 
-        wait_time = stacklesslib.main.mainloop.get_wait_time(tick_time)
-
         try:
-            stackless.run()
-            stacklesslib.main.mainloop.pump()
-            #asyncore.poll(0.05)
+            stacklesslib.main.mainloop.loop()
         except Exception as e:
             import asyncore
             if isinstance(e, ReferenceError):
