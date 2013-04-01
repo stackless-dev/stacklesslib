@@ -3,6 +3,7 @@
 
 import sys
 import threading as real_threading
+import contextlib
 from . import main
 from .replacements import thread, threading, popen
 
@@ -29,18 +30,28 @@ def patch_all():
 def patch_misc():
     # Fudge time.sleep.
     import time
+    sleep_orig = time.sleep
     time.sleep = main.sleep
+    if not hasattr(time, "real_sleep"):
+        time.real_sleep = sleep_orig
 
     # Fudge popen4 (if it exists).
     import os
     if hasattr(os, "popen4"):
+        real_popen4 = os.popen4
         os.popen4 = popen.popen4
+        if not hasattr(os, "real_popen4"):
+            os.real_popen4 = real_popen4
 
 def patch_thread():
+    import thread as real_thread
+    if not hasattr(thread, "real_thread"):
+        thread.real_thread = real_thread
     sys.modules["thread"] = thread
 
 def patch_threading():
-    threading.real_threading = real_threading
+    if not hasattr(threading, "real_threading"):
+        threading.real_threading = real_threading
     sys.modules["threading"] = threading
 
 def patch_select():
@@ -49,6 +60,9 @@ def patch_select():
         from stacklessio import select
     else:
         from stacklesslib.replacements import select
+    import select as real_select
+    if not hasattr(select, "real_select"):
+        select.real_select = real_select
     sys.modules["select"] = select
 
 def patch_socket(will_be_pumped=True):
@@ -72,7 +86,10 @@ def patch_socket(will_be_pumped=True):
             #We will pump it somehow.  Tell the mainloop to pump it too.
             socket.stacklesssocket_manager(None)
             socket.StopManager()
-            main.mainloop.add_pump(socket.pump)
+            def pump():
+                with Unpatched():
+                    socket.pump()
+            main.mainloop.add_pump(pump)
         socket.install()
 
 def patch_ssl():
@@ -138,3 +155,15 @@ def patch_ssl():
         bio = SocketBio(sock)
         return util.call_on_thread(realwrap, (bio,)+args, kwds)
     _ssl.sslwrap = wrapbio
+
+@contextlib.contextmanager
+def Unpatched():
+    """ A context manager that temporarily un-monkeypatches sleep and select """
+    import time, select
+    old = time.sleep, select.select
+    new = getattr(time, "real_sleep", time.sleep), getattr(select, "real_select", select.select)
+    time.sleep, select.select = new
+    try:
+        yield
+    finally:
+        time.sleep, select.select = old

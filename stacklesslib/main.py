@@ -19,7 +19,7 @@ if not stacklessio:
     except ImportError:
         pass
 
-_sleep = time.sleep # Steal this before monkeypatching occurs.
+_sleep = getattr(time, "real_sleep", time.sleep)
 
 # Get the best wallclock time to use.
 if sys.platform == "win32":
@@ -201,17 +201,15 @@ class MainLoop(object):
         for pump in self.pumps:
             pump()
 
-    def get_wait_time(self, time, delay=None):
+    def get_wait_time(self, time):
         """ Get the waitSeconds until the next tasklet is due (0 <= waitSeconds <= delay)  """
         if stackless.runcount > 1:
             return 0.0 # If a tasklet is runnable we do not wait at all.
         if self.scheduler.is_due:
             return 0.0
-        if delay is None:
-            delay = self.max_wait_time
         next_event = self.event_queue.next_time()
         if next_event:
-            delay = min(delay, next_event - time)
+            delay = min(self.max_wait_time, next_event - time)
             delay = max(delay, 0.0)
         return delay
 
@@ -281,13 +279,15 @@ class MainLoop(object):
         if wait_time:
             self.interruptable_wait(wait_time)
 
+    def loop(self):
+        self.wait()
+        self.pump()
+        self.run_tasklets()
+
     def run(self):
         """Run until stop() gets called"""
         while self.running:
-            self.pump()
-            self.run_tasklets()
-            if self.running:
-                self.wait()
+            self.loop()
 
     def stop(self):
         """Stop the run"""
@@ -311,8 +311,11 @@ class SLIOMainLoop(MainLoop):
 
 class AsyncoreMainLoop(MainLoop):
     """If we use asyncore, we use its wait function, rather than sleep"""
-    def raw_wait(self, delay):
-        asyncore.poll(delay)
+    def raw_sleep(self, delay):
+        # Undo monkeypatching for sleep and select
+        from .monkeypatch import Unpatched
+        with Unpatched():
+            asyncore.poll(delay)
 
 
 # Convenience functions to sleep in the global scheduler.
