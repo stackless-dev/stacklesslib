@@ -327,8 +327,8 @@ class _fakesocket(asyncore_dispatcher):
 
         self.readQueue = deque()
         self.writeQueue = deque()
-        self.sendToBuffers = deque()
         self._blockingsend = True # Default behaviour is to block and wait for result for send()
+        self._stream = realSocket.type == stdsocket.SOCK_STREAM
 
         if can_timeout():
             self._timeout = stdsocket.getdefaulttimeout()
@@ -394,8 +394,6 @@ class _fakesocket(asyncore_dispatcher):
             return True
         if len(self.writeQueue):
             return True
-        if len(self.sendToBuffers):
-            return True
         return False
 
     ## Overriden socket methods.
@@ -423,17 +421,20 @@ class _fakesocket(asyncore_dispatcher):
                 self.connectChannel.preference = 1
             self.receive_with_timeout(self.connectChannel)
 
-    def _send(self, data, flags, nowait=False):
-        self._ensure_connected()
+    def _send(self, data, flags, nowait=False, dest=None):
+        if not dest:
+            self._ensure_connected()
 
         if not nowait:
             channel = make_channel()
             channel.preference = 1 # Prefer the sender.
         else:
             channel = None
-        self.writeQueue.append((channel, flags, data))
+        self.writeQueue.append((channel, flags, data, dest))
         if channel:
             return self.receive_with_timeout(channel)
+        else:
+            return len(data)
 
     def setblockingsend(self, flag=None):
         old = self._blockingsend
@@ -442,10 +443,7 @@ class _fakesocket(asyncore_dispatcher):
         return old
 
     def send(self, data, flags=0):
-        if not self._blockingsend:
-            self._send(data, flags, True)
-            return len(data)
-        return self._send(data, flags)
+        return self._send(data, flags, not self._blockingsend)
 
     def sendall(self, data, flags=0):
         if not self._blockingsend:
@@ -457,26 +455,18 @@ class _fakesocket(asyncore_dispatcher):
                 raise Exception("completely unexpected situation, no data sent")
             data = data[nbytes:]
 
-    def sendto(self, sendData, sendArg1=None, sendArg2=None):
+    def sendto(self, *args):
         # sendto(data, address)
         # sendto(data [, flags], address)
-        if sendArg2 is not None:
-            flags = sendArg1
-            sendAddress = sendArg2
+        # go through hoops to emulate std socket errors for unittests
+        if len(args) == 2:
+            sendData, flags, sendAddress = args[0], 0, args[1]
+        elif len(args) == 3:
+            sendData, flags, sendAddress = args
         else:
-            flags = 0
-            sendAddress = sendArg1
-
-        waitChannel = None
-        for idx, (data, address, channel, sentBytes) in enumerate(self.sendToBuffers):
-            if address == sendAddress:
-                self.sendToBuffers[idx] = (data + sendData, address, channel, sentBytes)
-                waitChannel = channel
-                break
-        if waitChannel is None:
-            waitChannel = make_channel()
-            self.sendToBuffers.append((sendData, sendAddress, waitChannel, 0))
-        return self.receive_with_timeout(waitChannel)
+            raise TypeError, "sendto() takes 2 or 3 arguments (%d given)" % (len(args))
+        # wrap sendAddress so that an empty value doesn't trigger connection test
+        return self._send(sendData, flags, not self._blockingsend, (sendAddress,))
 
     def _recv(self, methodName, args, sizeIdx=0):
         self._ensure_non_blocking_read()
@@ -738,12 +728,15 @@ class _fakesocket(asyncore_dispatcher):
         This function still needs work WRT UDP.
         """
         if len(self.writeQueue):
-            channel, flags, data = self.writeQueue.popleft()
+            channel, flags, data, dest = self.writeQueue.popleft()
 
             # asyncore does not expose sending the flags.
-            def asyncore_send(self, data, flags=0):
+            def asyncore_send(self, data, flags, dest):
                 try:
-                    result = self.socket.send(data, flags)
+                    if dest is not None:
+                        result = self.socket.sendto(data, flags, dest[0])
+                    else:
+                        result = self.socket.send(data, flags)
                     return result
                 except stdsocket.error, why:
                     # logging.root.exception("SOME SEND ERROR")
@@ -753,34 +746,25 @@ class _fakesocket(asyncore_dispatcher):
 
             if channel:
                 try:
-                    nbytes = asyncore_send(self, data, flags)
+                    nbytes = asyncore_send(self, data, flags, dest)
                 except Exception, e:
                     if channel.balance < 0:
-                        channel.send_exception(type(e), e.args)
+                        send_throw(channel, *sys.exc_info())
                 else:
                     if channel.balance < 0:
                         channel.send(nbytes)
             else:
                 #its a non-blocking sendall
-                data, flags = self._merge_nbsends(data, flags)
+                if self._stream:
+                    data, flags = self._merge_nbsends(data, flags)
                 try:
-                    nbytes = asyncore_send(self, data, flags)
+                    nbytes = asyncore_send(self, data, flags, dest)
                     data = data[nbytes:]
                 except Exception, e:
                     log.info("exception during non-blocking send: %r", e)
                 else:
-                    if data:
-                        self.writeQueue.appendleft(None, flags, data)
-
-        elif len(self.sendToBuffers):
-            data, address, channel, oldSentBytes = self.sendToBuffers[0]
-            sentBytes = self.socket.sendto(data, address)
-            totalSentBytes = oldSentBytes + sentBytes
-            if len(data) > sentBytes:
-                self.sendToBuffers[0] = data[sentBytes:], address, channel, totalSentBytes
-            else:
-                del self.sendToBuffers[0]
-                stackless.tasklet(channel.send)(totalSentBytes)
+                    if data and self._stream:
+                        self.writeQueue.appendleft((None, flags, data, dest))
 
 
 if False:
