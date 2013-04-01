@@ -4,14 +4,14 @@ import os
 import re
 import threading
 
-from slpopen import filechannel
+from ..replacements.popen import FileChannel
 
 
 os_popen4 = os.popen4
 def popen4(cmd, mode='t', bufsize=-1):
     #no stdin support yet
-    pstdin, pstdout = filechannel(), filechannel()
-    
+    pstdin, pstdout = FileChannel(), FileChannel()
+
     def func():
         try:
             for i in range(10):
@@ -30,8 +30,8 @@ def popen4(cmd, mode='t', bufsize=-1):
     t = threading.Thread(target=func)
     t.start()
     return pstdin, pstdout
- 
- 
+
+
 def read_process(cmd, args=""):
     pipein, pipeout = popen4("%s %s" % (cmd, args))
     try:
@@ -44,7 +44,7 @@ def read_process(cmd, args=""):
         pipeout.close()
     return output
 
-   
+
 done = False
 def foo():
     try:
@@ -54,7 +54,7 @@ def foo():
         global done
         done = True
 
-    
+
 import stackless
 stackless.tasklet(foo)()
 while not done:
