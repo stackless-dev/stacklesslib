@@ -23,8 +23,10 @@ import stackless
 
 import stacklesslib.main
 
-
-elapsed_time = stacklesslib.main.elapsed_time
+# the unittests use time.time() for various time tests.
+# Therefore, we must make sure that main uses this
+from time import time as elapsed_time
+stacklesslib.main.elapsed_time = elapsed_time
 
 
 def run_unittests():
