@@ -214,6 +214,8 @@ class MainLoop(object):
         if next_event:
             delay = min(self.max_wait_time, next_event - time)
             delay = max(delay, 0.0)
+        else:
+            delay = self.max_wait_time
         return delay
 
     def adjust_wait_times(self, deltaSeconds):
