@@ -18,6 +18,7 @@ stacklesslib.monkeypatch.patch_all()
 import asyncore
 import traceback
 import sys
+import logging
 
 import stackless
 
@@ -61,6 +62,7 @@ def new_tasklet(f, *args, **kwargs):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.ERROR)
     run_unittests_tasklet = stackless.tasklet(new_tasklet)(run_unittests)
 
     while run_unittests_tasklet.alive:
