@@ -8,13 +8,12 @@ import stacklesslib.main
 class TestMainLoop(unittest.TestCase):
     def setUp(self):
         pass
- 
+
     def tearDown(self):
         pass
 
     def checkLeftThingsClean(self):
-        self.assertEqual(len(stacklesslib.main.event_queue.queue_a), 0) 
-        self.assertEqual(len(stacklesslib.main.event_queue.queue_b), 0) 
+        self.assertEqual(len(stacklesslib.main.event_queue), 0)
         return True
 
     def testPreemptiveRun(self):
@@ -23,12 +22,12 @@ class TestMainLoop(unittest.TestCase):
         get the tasklet returned from 'run_tasklets' when it is
         interrupted.
         """
-   
+
         t = stackless.tasklet(ArbitraryFunc)()
         t.run()
 
         while t.alive:
-            stacklesslib.main.mainloop.wakeup_tasklets(0)
+            stacklesslib.main.mainloop.pump(0)
             ret = stacklesslib.main.mainloop.run_tasklets(100)
             if ret is None and t.alive:
                 continue
@@ -37,23 +36,23 @@ class TestMainLoop(unittest.TestCase):
         else:
             self.fail("Tasklet was not interrupted")
 
-        self.checkLeftThingsClean() # Boilerplate check. 
+        self.checkLeftThingsClean() # Boilerplate check.
 
     def testCooperativeRun(self):
         """
         Create a tasklet and run it cooperatively, ensuring we never
         get it interrupted and returned from run_tasklets.
         """
-    
+
         t = stackless.tasklet(ArbitraryFunc)()
         t.run()
-        
+
         while t.alive:
-            stacklesslib.main.mainloop.wakeup_tasklets(0)
+            stacklesslib.main.mainloop.pump(0)
             ret = stacklesslib.main.mainloop.run_tasklets()
             self.assertFalse(ret)
-    
-        self.checkLeftThingsClean() # Boilerplate check. 
+
+        self.checkLeftThingsClean() # Boilerplate check.
 
 
 def ArbitraryFunc():

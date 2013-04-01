@@ -55,6 +55,9 @@ class EventQueue(object):
     def __init__(self):
         self.queue = []   # A heapq for events
 
+    def __len__(self):
+        return len(self.queue)
+
     def reschedule(self, delta_t):
         """
         Apply a delta-t to all timed events
