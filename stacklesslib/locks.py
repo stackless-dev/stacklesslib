@@ -80,7 +80,7 @@ class Semaphore(LockMixin):
                     raise
                 if self._try_acquire():
                     return True
-        
+
     def _try_acquire(self):
         if self._value > 0:
             self._value -= 1
@@ -90,7 +90,7 @@ class Semaphore(LockMixin):
             self._chan = stackless.channel()
             set_channel_pref(self._chan)
         return False
-    
+
     def release(self, count=1):
         with atomic():
             self._value += count
@@ -138,7 +138,7 @@ class RLock(Lock):
 
     def _try_acquire(self):
         if not (super(RLock, self)._try_acquire() or self._owning == stackless.getcurrent()):
-            return False   
+            return False
         self._owning = stackless.getcurrent()
         self._locked += 1
         return True
@@ -520,7 +520,7 @@ class ValueEvent(stackless.channel):
             def break_wait():
                 if not obj.closed:
                     obj.abort(timeoutException, timeoutExceptionValue)
-            main.event_queue.push_after(break_wait, timeout)
+            main.event_queue.call_later(timeout, break_wait)
 
         return obj
 

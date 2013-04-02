@@ -100,7 +100,7 @@ def channel_wait(chan, timeout=None):
     with atomic():
         try:
             #schedule the break event after a certain time
-            main.event_queue.push_after(break_wait, timeout)
+            main.event_queue.call_later(timeout, break_wait)
             return chan.receive()
         finally:
             waiting_tasklet = None

@@ -4,6 +4,7 @@ import heapq
 import sys
 import time
 import traceback
+import threading
 
 import stackless
 try:
@@ -52,86 +53,158 @@ def set_channel_pref(c):
 
 # A event queue class.
 class EventQueue(object):
+    """
+    This class manages future events.  Its scheduling functions have an interface that
+    match PEP 3156: http://www.python.org/dev/peps/pep-3156/#event-loop-interface
+    e.g. call_soon, call_later, etc.
+    """
     def __init__(self):
-        self.queue = []   # A heapq for events
+        self.queue = [] # A heapq for events
+        self.time_offset = 0 # time offset for scheduling
+        self.sequence = 0 # unique index
+        self.lock = threading.Lock()
+
+    def __len__(self):
+        return len(self.queue)
+
+    @staticmethod
+    def time():
+        return elapsed_time()
 
     def __len__(self):
         return len(self.queue)
 
     def reschedule(self, delta_t):
         """
-        Apply a delta-t to all timed events
+        Apply a delta-t to all existing timed events
         """
-        self.queue = [(t+delta_t, what) for t, what in self.queue]
+        self.time_offset -= delta_t
 
-    def push_at(self, what, when):
-        """
-        Push an event that will be executed at the given UTC time.
-        """
-        # The heappush operation should be atomic, so we don't need locking
-        # even when it comes from another thread.
-        heapq.heappush(self.queue, (when, what))
 
-    def push_after(self, what, delay):
+    def call_soon(self, callback, *args):
         """
-        Push an event that will be executed after a certain delay in seconds.
+        Cause the given callback to be performed as soon as possible
         """
-        self.push_at(what, delay + self.time())
+        # -1 is a special time value
+        return self._call_at(-1, -1, callback, args)
 
-    def cancel(self, what):
+    def call_later(self, delay, callback, *args):
+        """
+        Cause the given callback to be scheduled for call after 'delay' seconds
+        """
+        time = self.time() + self.time_offset + delay
+        return self._call_at(time, -1, callback, args)
+
+    def call_later_threadsafe(self, delay, callback, *args):
+        """
+        Cause the given callback to be scheduled for call after 'delay' seconds
+        """
+        result = self.call_later(delay, callback, *args)
+        self.cancel_sleep()
+        return result
+
+    def call_repeatedly(self, interval, callback, *args):
+        """
+        Cause the given callback to be called every 'interval' seconds.
+        """
+        time = self.time() + self.offset + interval
+        return self._call_at(time, interval, callback, args)
+
+    def _call_at(self, when, interval, callback, args):
+        #print self.time(), (when, interval, callback, args)
+        with self.lock:
+            sequence = self.sequence
+            self.sequence += 1
+            # s is a disambiguator for equal deadlines.
+            entry = (when, sequence, interval, callback, args)
+            heapq.heappush(self.queue, entry)
+        return Handle(self, sequence, callback, args)
+
+    def _cancel(self, sequence):
         """
         Cancel an event that has been submitted.  Raise ValueError if it isn't there.
         """
         # Note, there is no way currently to ensure that either the event was
         # removed or successfully executed, i.e. no synchronization.
         # Caveat Emptor.
-        for i, e in enumerate(self.queue):
-            if e[1] == what:
-                del self.queue[i]
-                heapq.heapify(self.queue) #heapq has no "remove" method
-                return
+        with self.lock:
+            for i, e in enumerate(self.queue):
+                if e[1] == sequence:
+                    del self.queue[i]
+                    heapq.heapify(self.queue) #heapq has no "remove" method
+                    return
         raise ValueError("event not in queue")
 
     def pump(self):
         """
         The worker function for the main loop to process events in the queue
         """
-        q = self.queue
-        if q:
-            batch = []
-            now = self.time()
-            while q and q[0][0] <= now:
-                batch.append(heapq.heappop(q)[1])
+        # produce a batch of events to perform this time.  This makes sure
+        # that new events created don't add to our job, thus making the loop
+        # infinite.
+        now = self.time() + self.time_offset
+        batch = []
+        with self.lock:
+            while self.queue:
+                t = self.queue[0][0]
+                if t < 0.0 or t <= now:
+                    batch.append(heapq.heappop(self.queue))
+                else:
+                    break
 
-
-            # Run the events
-            for what in batch:
-                try:
-                    what()
-                except Exception:
-                    self.handle_exception(sys.exc_info())
-            return len(batch)
-        return 0
+        # Run the events
+        for event in batch:
+            if event[2] >= 0.0:
+                # reschedule a repeated event with the same sequence id
+                with self.lock:
+                    entry = (now + event[2], ) + event[1:]
+                    heapq.heappush(self.queue, entry)
+            try:
+                event[3](*event[4]) # callback(*args)
+            except Exception:
+                self.handle_exception(sys.exc_info())
+        return len(batch)
 
     @property
     def is_due(self):
         """Returns true if the queue needs pumping now."""
-        return self.queue and self.queue[0][0] <= self.time()
+        return self.due_delay <= 0.0
 
-    def next_time(self):
-        """the UTC time at which the next event is due."""
-        if self.queue:
-            return self.queue[0][0]
+    def due_delay(self):
+        """delay in seconds until the next event, or None"""
+        with self.lock:
+            if self.queue:
+                t = self.queue[0][0]
+                if t < 0:
+                    return 0.0
+                now = self.time() + self.time_offset
+                return max(0.0, t-now)
         return None
 
     def handle_exception(self, exc_info):
         traceback.print_exception(*exc_info)
 
-    def time(self):
+class Handle(object):
+    """
+    This object represents a cancelable event from the EventQueue.
+    See http://www.python.org/dev/peps/pep-3156
+    """
+    def __init__(self, queue, sequence, callback, args):
+        self._queue = queue
+        self._sequence = sequence
+        # public attributes
+        self.canceled = False
+        self.callback = callback
+        self.args = args
+
+    def cancel(self):
         """
-        Return the wallclock time used for the event queue
+        exact semantics of this call are not yet defined, see
+        http://www.python.org/dev/peps/pep-3156
         """
-        return elapsed_time()
+        self.queue._cancel(self.sequence)
+        self.canceled = True
+
 
 class LoopScheduler(object):
     """ A tasklet scheduler to be used by the loop.  Support tasklet sleeping and sleep_next operations """
@@ -139,38 +212,21 @@ class LoopScheduler(object):
         self.event_queue = event_queue
         self.chan = stackless.channel()
         set_channel_pref(self.chan)
-        self.due = False
-
-    def _get_wakeup(self):
-        c = stackless.channel()
-        set_channel_pref(c)
-        def wakeup():
-            if c.balance:
-                c.send(None)
-        return wakeup, c
-
-    @property
-    def is_due(self):
-        return self.due
 
     def sleep(self, delay):
         if delay <= 0:
-            self.due = True
-            self.chan.receive()
-        #otherwise, use the event handler
-        wakeup, c = self._get_wakeup()
-        self.event_queue.push_after(wakeup, delay)
+            c = self.chan
+        else:
+            c = stackless.channel()
+            set_channel_pref(c)
+        def wakeup():
+            if c.balance:
+                c.send(None)
+        if delay <= 0:
+            self.event_queue.call_soon(wakeup)
+        else:
+            self.event_queue.call_later(delay, wakeup)
         c.receive()
-
-    def sleep_next(self):
-        self.chan.receive()
-
-    def pump(self):
-        self.due = False
-        for i in xrange(-self.chan.balance):
-            if self.chan.balance:
-                self.chan.send(None)
-
 
 # A mainloop class.
 # It can be subclassed to provide a better interruptable wait, for example on windows
@@ -208,11 +264,9 @@ class MainLoop(object):
         """ Get the waitSeconds until the next tasklet is due (0 <= waitSeconds <= delay)  """
         if stackless.runcount > 1:
             return 0.0 # If a tasklet is runnable we do not wait at all.
-        if self.scheduler.is_due:
-            return 0.0
-        next_event = self.event_queue.next_time()
-        if next_event:
-            delay = min(self.max_wait_time, next_event - time)
+        next_delay = self.event_queue.due_delay()
+        if next_delay:
+            delay = min(self.max_wait_time, next_delay)
             delay = max(delay, 0.0)
         else:
             delay = self.max_wait_time
@@ -263,9 +317,7 @@ class MainLoop(object):
            the event queue and the scheduled
         """
         self.pump_pumps()
-        self.scheduler.pump()
         self.event_queue.pump()
-        return
 
     def run_tasklets(self, run_for=0):
         """ Run runnable tasklets for as long as necessary """
@@ -303,7 +355,7 @@ class MainLoop(object):
         self.scheduler.sleep(delay)
 
     def sleep_next(self):
-        self.scheduler.sleep_next()
+        self.scheduler.sleep(0)
 
 
 class SLIOMainLoop(MainLoop):
