@@ -161,7 +161,7 @@ def Unpatched():
     """ A context manager that temporarily un-monkeypatches sleep and select """
     import time, select
     old = time.sleep, select.select
-    new = getattr(time, "real_sleep", time.sleep), getattr(select, "real_select", select.select)
+    new = getattr(time, "real_sleep", time.sleep), getattr(select, "real_select", select).select
     time.sleep, select.select = new
     try:
         yield
