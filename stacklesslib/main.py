@@ -202,8 +202,9 @@ class Handle(object):
         exact semantics of this call are not yet defined, see
         http://www.python.org/dev/peps/pep-3156
         """
-        self.queue._cancel(self.sequence)
-        self.canceled = True
+        if not self.canceled:
+            self._queue._cancel(self._sequence)
+            self.canceled = True
 
 
 class LoopScheduler(object):

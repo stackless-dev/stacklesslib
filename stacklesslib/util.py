@@ -5,6 +5,7 @@ import contextlib
 import weakref
 import collections
 from . import main
+from .errors import TimeoutError
 
 
 @contextlib.contextmanager
@@ -81,29 +82,12 @@ class local(object):
         except KeyError:
             raise AttributeError(name)
 
-class WaitTimeoutError(RuntimeError):
-    pass
+WaitTimeoutError = TimeoutError # backwards compatibility
 
-def channel_wait(chan, timeout=None):
+def channel_wait(chan, delay=None):
     """channel.receive with an optional timeout"""
-    if timeout is None:
+    with timeout(delay, blocked=True):
         return chan.receive()
-
-    waiting_tasklet = stackless.getcurrent()
-    def break_wait():
-        #careful to only timeout if it is still blocked.  This ensures
-        #that a successful channel.send doesn't simultaneously result in
-        #a timeout, which would be a terrible source of race conditions.
-        with atomic():
-            if waiting_tasklet and waiting_tasklet.blocked:
-                waiting_tasklet.raise_exception(WaitTimeoutError)
-    with atomic():
-        try:
-            #schedule the break event after a certain time
-            main.event_queue.call_later(timeout, break_wait)
-            return chan.receive()
-        finally:
-            waiting_tasklet = None
 
 def send_throw(channel, exc, val=None, tb=None):
     """send exceptions over a channel.  Has the same semantics
@@ -219,3 +203,49 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None, timeout_ex
             return channel_wait(chan, timeout)
         finally:
             chan.close()
+
+
+# A timeout context manager
+# First, a hidden inner exception that is not caught by normal exception handlers
+class _InternalTimeout(BaseException):
+    pass
+
+@contextlib.contextmanager
+def timeout(delay, blocked=False):
+    if delay is None or delay < 0:
+        yield
+        return
+
+    waiting_tasklet = stackless.getcurrent()
+    tag = object() # Create a unique instance
+    def callback():
+        with atomic():
+            if waiting_tasklet:
+                if blocked and not waiting_tasklet.blocked:
+                    return # Don't timeout a non-blocked tasklets
+                try:
+                    waiting_tasklet.throw(_InternalTimeout(tag), immediate=False)
+                except AttributeError:
+                    # versions without the "throw"
+                    waiting_tasklet.raise_exception(_InternalTimeout, tag)
+    with atomic():
+        handle = main.event_queue.call_later(delay, callback)
+        try:
+            yield # Run the code
+        except _InternalTimeout as e:
+            if e.args[0] is tag:
+                # Turn it into the proper timeout
+                handle = None
+                raise TimeoutError("timed out after %ss"%(delay,)), None, sys.exc_info()[2]
+            raise # it is someone else's error
+        finally:
+            waiting_tasklet = None
+            if handle:
+                handle.cancel()
+
+def timeout_call(callable, timeout):
+    try:
+        with timeout(delay):
+            return True, callable()
+    except TimeoutError as e:
+        return False, e
