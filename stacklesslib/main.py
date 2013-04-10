@@ -370,6 +370,9 @@ class SLIOMainLoop(MainLoop):
 class AsyncoreMainLoop(MainLoop):
     """If we use asyncore, we use its wait function, rather than sleep"""
     def raw_sleep(self, delay):
+        if not asyncore.socket_map:
+            # If there are no sockets, then poll returns. Must manually sleep
+            _sleep(delay)
         # Undo monkeypatching for sleep and select
         from .monkeypatch import Unpatched
         with Unpatched():
@@ -390,6 +393,7 @@ elif asyncore:
     mainloopClass = AsyncoreMainLoop
 else:
     mainloopClass = MainLoop
+#mainloopClass = MainLoop
 
 event_queue = EventQueue()
 scheduler = LoopScheduler(event_queue)
