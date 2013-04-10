@@ -193,7 +193,7 @@ class Handle(object):
         self._queue = queue
         self._sequence = sequence
         # public attributes
-        self.canceled = False
+        self.canceled = None
         self.callback = callback
         self.args = args
 
@@ -201,11 +201,16 @@ class Handle(object):
         """
         exact semantics of this call are not yet defined, see
         http://www.python.org/dev/peps/pep-3156
+        Currently returns True if it was successfully canceled, False if it had already run
         """
-        if not self.canceled:
-            self._queue._cancel(self._sequence)
-            self.canceled = True
-
+        if self.canceled is not None:
+            try:
+                self._queue._cancel(self._sequence)
+            except ValueError:
+                self.canceled = False # it already ran
+            else:
+                self.canceled = True
+        return self.canceled
 
 class LoopScheduler(object):
     """ A tasklet scheduler to be used by the loop.  Support tasklet sleeping and sleep_next operations """
