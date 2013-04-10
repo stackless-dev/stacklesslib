@@ -212,7 +212,14 @@ class _InternalTimeout(BaseException):
 
 @contextlib.contextmanager
 def timeout(delay, blocked=False):
+    """
+    A context manager which installes a timeout handler and will cause a
+    TimeoutError to be raised on the tasklet if it is triggered.
+    if "blocked" is true, then the timeout will only occur if the tasklet
+    is blocked on a channel.
+    """
     if delay is None or delay < 0:
+        # The infinite timeout case
         yield
         return
 
@@ -233,6 +240,7 @@ def timeout(delay, blocked=False):
         try:
             yield # Run the code
         except _InternalTimeout as e:
+            # Check if it is _our_ exception instance:
             if e.args[0] is tag:
                 # Turn it into the proper timeout
                 handle = None
@@ -243,9 +251,20 @@ def timeout(delay, blocked=False):
             if handle:
                 handle.cancel()
 
-def timeout_call(callable, timeout):
+def timeout_call(callable, delay):
+    """A call wrapper, returning (success, result), where "success" is true if there was no timeout"""
     try:
         with timeout(delay):
             return True, callable()
     except TimeoutError as e:
         return False, e
+
+def timeout_function(delay):
+    """A decorator applying the given timeout to a function"""
+    def helper(function):
+        @contextlib.wraps(function)
+        def wrapper(*args, **kwargs):
+            with timeout(delay):
+                return function(*args, **kwargs)
+        return wrapper
+    return helper

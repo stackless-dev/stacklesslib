@@ -23,6 +23,7 @@ import logging
 import stackless
 
 import stacklesslib.main
+import stacklesslib.app
 
 # the unittests use time.time() for various time tests.
 # Therefore, we must make sure that main uses this
@@ -63,6 +64,7 @@ def new_tasklet(f, *args, **kwargs):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.ERROR)
+    stacklesslib.app.install_stackless()
     run_unittests_tasklet = stackless.tasklet(new_tasklet)(run_unittests)
 
     while run_unittests_tasklet.alive:

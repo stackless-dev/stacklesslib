@@ -4,6 +4,7 @@
 import runpy
 import sys
 from .monkeypatch import patch_all
+from .app import install_stackless()
 
 import stackless
 from . import main
@@ -29,6 +30,7 @@ def run():
 
 if __name__ == "__main__":
     patch_all()
+    install_stackless()
     main.set_scheduling_mode(main.SCHEDULING_ROUNDROBIN)
     stackless.tasklet(run)()
     main.mainloop.run()
