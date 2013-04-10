@@ -210,6 +210,13 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None, timeout_ex
 class _InternalTimeout(BaseException):
     pass
 
+# A class representing this instance.  Can be consulted to see if the
+# error was thrown from here
+class timeout_instance(object):
+    def match(self, e):
+        """returns true if the given object is the exception raised by this instance"""
+        return isinstance(e, TimeoutError) and len(e.args) > 1 and e.args[1] is self
+
 @contextlib.contextmanager
 def timeout(delay, blocked=False):
     """
@@ -224,27 +231,27 @@ def timeout(delay, blocked=False):
         return
 
     waiting_tasklet = stackless.getcurrent()
-    tag = object() # Create a unique instance
+    inst = timeout_instance() # Create a unique instance
     def callback():
         with atomic():
             if waiting_tasklet:
                 if blocked and not waiting_tasklet.blocked:
                     return # Don't timeout a non-blocked tasklets
                 try:
-                    waiting_tasklet.throw(_InternalTimeout(tag), immediate=False)
+                    waiting_tasklet.throw(_InternalTimeout(inst), immediate=False)
                 except AttributeError:
                     # versions without the "throw"
-                    waiting_tasklet.raise_exception(_InternalTimeout, tag)
+                    waiting_tasklet.raise_exception(_InternalTimeout, inst)
     with atomic():
         handle = main.event_queue.call_later(delay, callback)
         try:
-            yield # Run the code
+            yield inst # Run the code
         except _InternalTimeout as e:
             # Check if it is _our_ exception instance:
-            if e.args[0] is tag:
+            if e.args[0] is inst:
                 # Turn it into the proper timeout
                 handle = None
-                raise TimeoutError("timed out after %ss"%(delay,)), None, sys.exc_info()[2]
+                raise TimeoutError("timed out after %ss"%(delay,), inst), None, sys.exc_info()[2]
             raise # it is someone else's error
         finally:
             waiting_tasklet = None

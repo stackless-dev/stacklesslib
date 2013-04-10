@@ -19,12 +19,12 @@ fluff = (t1-t0) * 2
 # typcially 2ms
 
 class TimeoutMixin(object):
-    def _notimeout(self, call, timeout=0.1):
+    def _notimeout(self, call, timeout=0.01):
         with self.Timer(timeout):
             with util.timeout(timeout):
                 return call()
 
-    def _timeout(self, call, timeout=0.1):
+    def _timeout(self, call, timeout=0.01):
         self.assertRaises(TimeoutError, self._notimeout, call, timeout)
 
     @contextlib.contextmanager
@@ -59,36 +59,36 @@ class TestTimeout(TimeoutMixin, unittest.TestCase):
         import time
         sleep = getattr(time, "real_sleep", time.sleep)
         def func():
-            sleep(0.1)
+            sleep(0.01)
             return "hullo"
         # should not timeou because there is no point for the tasklet
         # to do so
-        result = self._notimeout(func, 0.05)
+        result = self._notimeout(func, 0.001)
         self.assertEqual(result, "hullo")
 
     def test_sleep(self):
-        result = self._timeout(lambda:app.sleep(0.1), 0.05)
+        result = self._timeout(lambda:app.sleep(1.0))
 
     def test_event(self):
         e = app.Event()
-        result = self._timeout(lambda:e.wait(), 0.05)
+        result = self._timeout(lambda:e.wait())
 
     def test_Lock(self):
         e = app.Lock()
         with e:
-            result = self._timeout(lambda:e.acquire(), 0.05)
+            result = self._timeout(lambda:e.acquire())
 
 
 class TestTimeoutDeco(TestTimeout):
     """Using the function decorator"""
-    def _notimeout(self, call, timeout=0.1):
+    def _notimeout(self, call, timeout=0.01):
         call2 = util.timeout_function(timeout)(call)
         with self.Timer(timeout):
             return call2()
 
 class TestTimeoutFunc(TestTimeout):
     """Using the function call proxy"""
-    def _notimeout(self, call, timeout=0.1):
+    def _notimeout(self, call, timeout=0.01):
         def call2():
             ok, val = util.timeout_call(call, timeout)
             if ok:
@@ -108,11 +108,11 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
                     app.sleep(2.0)
                 except TimeoutError:
                     self.assertFalse("this should not have timed out")
-        self._timeout(inner, 0.1)
+        self._timeout(inner, 0.01)
 
     def test_inner_catch_reraise(self):
         def inner():
-            with util.timeout(0.1): #long timeout
+            with util.timeout(0.01): #long timeout
                 app.sleep(2.0)
         # expect the inner timeout to percolate outwards
         def outer():
@@ -123,7 +123,7 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
 
     def test_inner_catch(self):
         def inner():
-            with util.timeout(0.1): #long timeout
+            with util.timeout(0.01): #long timeout
                 app.sleep(2.0)
 
         # expect the inner timeout to percolate outwards
@@ -135,11 +135,11 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
 
     def test_inner_same(self):
         def inner():
-            with util.timeout(0.1): #long timeout
+            with util.timeout(0.01): #long timeout
                 app.sleep(2.0)
 
         def outer():
-            with util.timeout(0.1):
+            with util.timeout(0.01):
                 self.assertRaises(TimeoutError, inner)
                 raise TimeoutError
                 return "foo"
@@ -148,35 +148,47 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
 
     def test_three_timeouts(self):
         def one():
-            with util.timeout(0.6):
+            with util.timeout(0.06):
                 app.sleep(1.0)
         def two():
-            with util.timeout(0.8):
+            with util.timeout(0.08):
                 self.assertRaises(TimeoutError, one)
                 app.sleep(1.0)
 
         def three():
-            with util.timeout(0.1):
+            with util.timeout(0.01):
                 self.assertRaises(TimeoutError, two)
                 app.sleep(1.0)
         self.assertRaises(TimeoutError, three)
 
     def test_three_successes(self):
         def one():
-            with util.timeout(0.6):
+            with util.timeout(0.06):
                 return "foo"
         def two():
-            with util.timeout(0.8):
+            with util.timeout(0.08):
                 return one()
         def three():
-            with util.timeout(0.1):
+            with util.timeout(0.01):
                 return two()
         self.assertEqual("foo", three())
 
-
-
-
-
+    def test_inst(self):
+        def one():
+            try:
+                with util.timeout(0.01) as inst:
+                    app.sleep(1.0)
+            except Exception, e:
+                self.assertTrue(inst.match(e))
+                raise
+        def two():
+            try:
+                with util.timeout(0.02) as inst:
+                    one()
+            except Exception, e:
+                self.assertFalse(inst.match(e))
+                raise
+        self.assertRaises(TimeoutError, two)
 
 
 def run_unittests():
