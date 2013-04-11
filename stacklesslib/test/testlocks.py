@@ -24,10 +24,6 @@ class ConditionTests(lock_tests.ConditionTests):
     locktype = staticmethod(locks.Lock)
     condtype = staticmethod(locks.Condition)
 
-class RConditionTests(lock_tests.ConditionTests):
-    locktype = staticmethod(locks.RLock)
-    condtype = staticmethod(locks.Condition)
-
 class NLConditionTests(lock_tests.NLConditionTests):
     locktype = staticmethod(locks.Lock)
     condtype = staticmethod(locks.NLCondition)
@@ -39,13 +35,6 @@ class SemaphoreTests(lock_tests.SemaphoreTests):
 class BoundedSemaphoreTests(lock_tests.BoundedSemaphoreTests):
     semtype = staticmethod(locks.BoundedSemaphore)
 
-def test_main():
-    test.test_support.run_unittest(LockTests, RLockTests, EventTests,
-                                   ConditionAsRLockTests, ConditionTests,
-                                   # RConditionTests,
-                                   NLConditionTests,
-                                   SemaphoreTests, BoundedSemaphoreTests,
-                                   )
 
 if __name__ == "__main__":
-    test_main()
+    unittest.main()

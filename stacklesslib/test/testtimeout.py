@@ -190,25 +190,29 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
                 raise
         self.assertRaises(TimeoutError, two)
 
+class StacklessTestSuite(unittest.TestSuite):
+    def run(self, results):
+        err = []
+        def tasklet_run():
+            try:
+                unittest.TestSuite.run(self, results)
+            except:
+                err.append(sys.exc_info())
+        app.install_stackless()
+        tasklet = stackless.tasklet(tasklet_run)()
+        while tasklet.alive:
+            main.mainloop.loop()
+        if err:
+            try:
+                raise err[0][0], err[0][1], err[0][2]
+            finally:
+                err = None
 
-def run_unittests():
-    import sys
-    if not sys.argv[1:]:
-        sys.argv.append('-v')
-    # This code might
-    unittest.main()
-
+def load_tests(loader, tests, pattern): # test loader protocol
+    suite = StacklessTestSuite()
+    suite.addTests(tests)
+    return suite
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.ERROR)
-    app.install_stackless()
-
-    def new_tasklet(f, *args, **kwargs):
-        try:
-            f(*args, **kwargs)
-        except Exception:
-            traceback.print_exc()
-    run_unittests_tasklet = stackless.tasklet(new_tasklet)(run_unittests)
-
-    while run_unittests_tasklet.alive:
-        main.mainloop.loop()
+    unittest.main()
