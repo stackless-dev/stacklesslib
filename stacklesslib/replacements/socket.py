@@ -404,6 +404,11 @@ class _fakesocket(asyncore_dispatcher):
             self.acceptChannel = make_channel()
         return self.receive_with_timeout(self.acceptChannel)
 
+    def listen(self, num):
+        if num > 2<<29:
+            raise OverflowError # for socket unittests compatibility
+        asyncore_dispatcher.listen(self, num)
+
     def connect(self, address):
         """
         If a timeout is set for the connection attempt, and the timeout occurs
@@ -574,11 +579,8 @@ class _fakesocket(asyncore_dispatcher):
     def fileno(self):
         return self.socket.fileno()
 
-    def _is_non_blocking(self):
-        return not self._blocking or self._timeout == 0.0
-
     def _ensure_non_blocking_read(self):
-        if self._is_non_blocking():
+        if not self._blocking:
             # Ensure there is something on the socket, before fetching it.  Otherwise, error complaining.
             r, w, e = select.select([ self ], [], [], 0.0)
             if not r:
@@ -594,14 +596,23 @@ class _fakesocket(asyncore_dispatcher):
 
     def setblocking(self, flag):
         self._blocking = flag
+        if flag:
+            self._timeout = None
+        else:
+            self._timeout = 0.0
 
     def gettimeout(self):
         return self._timeout
 
     def settimeout(self, value):
-        if value and not can_timeout():
-            raise RuntimeError("This is a stackless socket - to have timeout support you need to provide a sleep function")
-        self._timeout = value
+        if value == 0.0:
+            self._blocking = False
+            self._timeout = 0.0
+        else:
+            if value and not can_timeout():
+                raise RuntimeError("This is a stackless socket - to have timeout support you need to provide a sleep function")
+            self._blocking = True
+            self._timeout = value
 
     def handle_accept(self):
         if self.acceptChannel and self.acceptChannel.balance < 0:
