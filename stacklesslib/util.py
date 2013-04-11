@@ -6,46 +6,9 @@ import weakref
 import collections
 from . import main
 from .errors import TimeoutError
+from .base import atomic
 
-
-@contextlib.contextmanager
-def atomic():
-    """a context manager to make the tasklet atomic for the duration"""
-    c = stackless.getcurrent()
-    old = c.set_atomic(True)
-    try:
-        yield
-    finally:
-        c.set_atomic(old)
-
-@contextlib.contextmanager
-def block_trap(trap=True):
-    """
-    A context manager to temporarily set the block trap state of the
-    current tasklet.  Defaults to setting it to True
-    """
-    c = stackless.getcurrent()
-    old = c.block_trap
-    c.block_trap = trap
-    try:
-        yield
-    finally:
-        c.block_trap = old
-
-@contextlib.contextmanager
-def ignore_nesting(flag=True):
-    """
-    A context manager which allows the current tasklet to engage the
-    ignoring of nesting levels.  By default pre-emptive switching can
-    only happen at the top nesting level, setting this allows it to
-    happen at all nesting levels.  Defaults to setting it to True.
-    """
-    c = stackless.getcurrent()
-    old = c.set_ignore_nesting(flag)
-    try:
-        yield
-    finally:
-        c.set_ignore_nesting(old)
+WaitTimeoutError = TimeoutError # backwards compatibility
 
 class local(object):
     """Tasklet local storage.  Similar to threading.local"""
@@ -82,7 +45,6 @@ class local(object):
         except KeyError:
             raise AttributeError(name)
 
-WaitTimeoutError = TimeoutError # backwards compatibility
 
 def channel_wait(chan, delay=None):
     """channel.receive with an optional timeout"""
@@ -111,6 +73,30 @@ def send_throw(channel, exc, val=None, tb=None):
     if not isinstance(val, tuple):
         val = val.args
     channel.send_exception(exc, *val)
+
+def tasklet_throw(tasklet, exc, val=None, tb=None, immediate=True):
+    """
+    Throw an exception on a tasklet.  Emulates the new functionality
+    for those versions that don't have tasklet.throw.
+    Note, that delivery in those cases is always immediate.
+    """
+    if hasattr(tasklet, "throw"):
+        return tasklet.throw(exc, val, tb, immediate)
+    #currently, channel.send_exception allows only (type, arg1, ...)
+    #and can"t cope with tb
+    if exc is None:
+        if val is None:
+            val = sys.exc_info()[1]
+        exc = val.__class__
+    elif val is None:
+        if isinstance(type, exc):
+            exc, val = exc, ()
+        else:
+            exc, val = exc.__class__, exc
+    if not isinstance(val, tuple):
+        val = val.args
+    tasklet.raise_exception(exc, *val)
+
 
 class qchannel(stackless.channel):
     """
@@ -237,11 +223,8 @@ def timeout(delay, blocked=False):
             if waiting_tasklet:
                 if blocked and not waiting_tasklet.blocked:
                     return # Don't timeout a non-blocked tasklets
-                try:
-                    waiting_tasklet.throw(_InternalTimeout(inst), immediate=False)
-                except AttributeError:
-                    # versions without the "throw"
-                    waiting_tasklet.raise_exception(_InternalTimeout, inst)
+                tasklet_throw(waiting_tasklet, _InternalTimeout(inst), immediate=False)
+
     with atomic():
         handle = main.event_queue.call_later(delay, callback)
         try:

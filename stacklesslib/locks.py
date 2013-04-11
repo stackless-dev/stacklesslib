@@ -15,7 +15,9 @@ import contextlib
 
 from . import main
 from .main import set_channel_pref, elapsed_time
-from .util import atomic, channel_wait, WaitTimeoutError
+from .base import atomic
+from .util import channel_wait
+from .errors import TimeoutError
 
 
 @contextlib.contextmanager
@@ -36,7 +38,7 @@ def lock_channel_wait(chan, timeout):
     try:
         channel_wait(chan, timeout)
         return True
-    except WaitTimeoutError:
+    except TimeoutError:
         return False
 
 
@@ -514,7 +516,7 @@ class ValueEvent(stackless.channel):
 
         if timeout > 0.0:
             if timeoutException is None:
-                timeoutException = WaitTimeoutError
+                timeoutException = TimeoutError
                 timeoutExceptionValue = "Event timed out"
 
             def break_wait():
