@@ -216,14 +216,33 @@ def timeout(delay, blocked=False):
         yield
         return
 
+    # waiting_tasklet is used as a senty to show that the original
+    # caller is still in the context manager
     waiting_tasklet = stackless.getcurrent()
     inst = timeout_instance() # Create a unique instance
+
+    def old_callback():
+        with atomic():
+            if waiting_tasklet: # it is in the timeout context still
+                if blocked and not waiting_tasklet.blocked:
+                    return
+                waiting_tasklet.raise_exception(_InternalTimeout, inst)
+
     def callback():
         with atomic():
-            if waiting_tasklet:
+            if waiting_tasklet: # it is in the timeout context still
                 if blocked and not waiting_tasklet.blocked:
                     return # Don't timeout a non-blocked tasklets
-                tasklet_throw(waiting_tasklet, _InternalTimeout(inst), immediate=False)
+                try:
+                    waiting_tasklet.throw(_InternalTimeout(inst), immediate=False)
+                except AttributeError:
+                    # tasklet.throw is new. Fallback to raise_exception
+                    # raise_exception is immediate, so we must call it on a tasklet
+                    stackless.tasklet(old_callback)()
+
+    def delayed_callback():
+        # call the callback from a worker
+        stackless.tasklet(callback)()
 
     with atomic():
         handle = main.event_queue.call_later(delay, callback)
