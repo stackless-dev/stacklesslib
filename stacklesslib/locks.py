@@ -18,6 +18,7 @@ from .main import set_channel_pref, elapsed_time
 from .base import atomic
 from .util import channel_wait
 from .errors import TimeoutError
+from . import app
 
 
 @contextlib.contextmanager
@@ -522,7 +523,7 @@ class ValueEvent(stackless.channel):
             def break_wait():
                 if not obj.closed:
                     obj.abort(timeoutException, timeoutExceptionValue)
-            main.event_queue.call_later(timeout, break_wait)
+            app.event_queue.call_later(timeout, break_wait)
 
         return obj
 

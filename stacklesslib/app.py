@@ -11,26 +11,35 @@ thread locking primitive.
 import time
 import threading
 from . import main
-from . import locks
+from . import events
 
 def install_vanilla():
-	g = globals()
-	g["sleep"] = time.sleep
-	g["Event"] = threading.Event
-	g["Lock"] = threading.Lock
-	g["Rlock"] = threading.RLock
-	g["Condition"] = threading.Condition
-	g["Semaphore"] = threading.Semaphore
+    """
+    Set up the globals to use default thread-blocking features
+    """
+    g = globals()
+    g["sleep"] = time.sleep
+    g["Event"] = threading.Event
+    g["Lock"] = threading.Lock
+    g["Rlock"] = threading.RLock
+    g["Condition"] = threading.Condition
+    g["Semaphore"] = threading.Semaphore
+    g["event_queue"] = events.DummyEventQueue() # Use the dummy instance which raises an error
 
 
 def install_stackless():
-	g = globals()
-	g["sleep"] = main.sleep
-	g["Event"] = locks.Event
-	g["Lock"] = locks.Lock
-	g["Rlock"] = locks.RLock
-	g["Condition"] = locks.Condition
-	g["Semaphore"] = locks.Semaphore
+    """
+    Set up the globals for a functioning event event loop
+    """
+    from . import locks
+    g = globals()
+    g["sleep"] = main.sleep
+    g["Event"] = locks.Event
+    g["Lock"] = locks.Lock
+    g["Rlock"] = locks.RLock
+    g["Condition"] = locks.Condition
+    g["Semaphore"] = locks.Semaphore
+    g["event_queue"] = main.event_queue # use the instance from the main
 
 # Run in non-stackless mode until told differently
 install_vanilla()

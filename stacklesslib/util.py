@@ -7,6 +7,7 @@ import collections
 from . import main
 from .errors import TimeoutError
 from .base import atomic
+from . import app
 
 WaitTimeoutError = TimeoutError # backwards compatibility
 
@@ -245,7 +246,7 @@ def timeout(delay, blocked=False):
         stackless.tasklet(callback)()
 
     with atomic():
-        handle = main.event_queue.call_later(delay, callback)
+        handle = app.event_queue.call_later(delay, callback)
         try:
             yield inst # Run the code
         except _InternalTimeout as e:

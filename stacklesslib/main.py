@@ -6,6 +6,7 @@ import traceback
 
 from .base import atomic
 from .base import time as elapsed_time
+from .events import EventQueue
 
 import stackless
 try:
@@ -44,8 +45,6 @@ def set_channel_pref(c):
     else:
         c.preference = -1
 
-
-from .events import EventQueue
 
 class LoopScheduler(object):
     """ A tasklet scheduler to be used by the loop.  Support tasklet sleeping and sleep_next operations """
