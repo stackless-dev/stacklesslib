@@ -6,6 +6,8 @@ the stackless-framework.  It is intended for things such as sleep(), whose
 Stackless-implementation won't work unless the framework is being ticket.
 Contrast this with stacklesslib.locks.Lock() which also works as a normal
 thread locking primitive.
+The replacement is indirected, so that client code can bind directly
+to the functions here, e.g. use "from stacklesslib.app import sleep"
 """
 
 import time
@@ -13,18 +15,45 @@ import threading
 from . import main
 from . import events
 
+class _ObjProxy(object):
+    def __init__(self, name):
+        self._name = name
+    def __getattr__(self, attr):
+        return getattr(globals()[self._name], attr)
+
+def sleep(delay):
+    _sleep(delay)
+
+def Event():
+    return _Event()
+
+def Lock():
+    return _Lock()
+
+def RLock():
+    return _Rlock()
+
+def Condition():
+    return _Condition()
+
+def Semaphore():
+    return _Semaphore()
+
+event_queue = _ObjProxy("_event_queue")
+
+
 def install_vanilla():
     """
     Set up the globals to use default thread-blocking features
     """
     g = globals()
-    g["sleep"] = time.sleep
-    g["Event"] = threading.Event
-    g["Lock"] = threading.Lock
-    g["Rlock"] = threading.RLock
-    g["Condition"] = threading.Condition
-    g["Semaphore"] = threading.Semaphore
-    g["event_queue"] = events.DummyEventQueue() # Use the dummy instance which raises an error
+    g["_sleep"] = time.sleep
+    g["_Event"] = threading.Event
+    g["_Lock"] = threading.Lock
+    g["_Rlock"] = threading.RLock
+    g["_Condition"] = threading.Condition
+    g["_Semaphore"] = threading.Semaphore
+    g["_event_queue"] = events.DummyEventQueue() # Use the dummy instance which raises an error
 
 
 def install_stackless():
@@ -33,13 +62,13 @@ def install_stackless():
     """
     from . import locks
     g = globals()
-    g["sleep"] = main.sleep
-    g["Event"] = locks.Event
-    g["Lock"] = locks.Lock
-    g["Rlock"] = locks.RLock
-    g["Condition"] = locks.Condition
-    g["Semaphore"] = locks.Semaphore
-    g["event_queue"] = main.event_queue # use the instance from the main
+    g["_sleep"] = main.sleep
+    g["_Event"] = locks.Event
+    g["_Lock"] = locks.Lock
+    g["_Rlock"] = locks.RLock
+    g["_Condition"] = locks.Condition
+    g["_Semaphore"] = locks.Semaphore
+    g["_event_queue"] = main.event_queue # use the instance from the main
 
 # Run in non-stackless mode until told differently
 install_vanilla()

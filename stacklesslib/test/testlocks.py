@@ -3,7 +3,7 @@
 import unittest
 import test.test_support
 
-from .. import locks
+from .. import locks, app
 
 from . import lock_tests
 
@@ -37,4 +37,5 @@ class BoundedSemaphoreTests(lock_tests.BoundedSemaphoreTests):
 
 
 if __name__ == "__main__":
+    app.install_stackless()
     unittest.main()
