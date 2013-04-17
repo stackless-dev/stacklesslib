@@ -10,7 +10,7 @@ import stackless
 
 from stacklesslib.locks import Lock, RLock, Semaphore, Condition, BoundedSemaphore, Event
 from stacklesslib.locks import Barrier, BrokenBarrierError
-from stacklesslib.main import sleep
+from stacklesslib.app import sleep as app_sleep
 from stacklesslib.util import local
 import stacklesslib.replacements.thread as thread
 _start_new_thread = thread.start_new_thread
@@ -188,7 +188,7 @@ class Timer(Thread):
         self._canceled = True
 
     def _function(self, *args, **kwargs):
-        sleep(self._interval)
+        app_sleep(self._interval)
         if not self._canceled:
             self.function(*args, **kwargs)
 

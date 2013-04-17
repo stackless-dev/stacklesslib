@@ -61,7 +61,7 @@ def ArbitraryFunc():
     for i in range(1000):
         for j in range(1000):
             sum += 10
-        stacklesslib.main.sleep(0)
+        stacklesslib.app.sleep(0)
 
 
 if __name__ == '__main__':

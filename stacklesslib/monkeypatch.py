@@ -6,6 +6,7 @@ import threading as real_threading
 import contextlib
 from . import main
 from .replacements import thread, threading, popen
+from .app import sleep as app_sleep
 
 # Use stacklessio if available
 try:
@@ -80,8 +81,8 @@ def patch_socket(will_be_pumped=True):
     else:
         # Fallback on the generic 'stacklesssocket' module.
         from stacklesslib.replacements import socket
-        socket._sleep_func = main.sleep
-        socket._schedule_func = lambda: main.sleep(0)
+        socket._sleep_func = app_sleep
+        socket._schedule_func = lambda: app_sleep(0)
         if will_be_pumped:
             #We will pump it somehow.  Tell the mainloop to pump it too.
             socket.stacklesssocket_manager(None)
