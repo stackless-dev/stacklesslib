@@ -14,7 +14,8 @@ import stackless
 import contextlib
 
 from . import main
-from .main import set_channel_pref, elapsed_time
+from .base import get_channel
+from .base import time as elapsed_time
 from .base import atomic
 from .util import channel_wait
 from .errors import TimeoutError
@@ -90,8 +91,7 @@ class Semaphore(LockMixin):
             return True
         if not self._chan:
             # Lazy creation of the channel
-            self._chan = stackless.channel()
-            set_channel_pref(self._chan)
+            self._chan = get_channel()
         return False
 
     def release(self, count=1):
@@ -435,9 +435,7 @@ class NLCondition(LockMixin):
     in stackless programs often are not pre-emptable.
     """
     def __init__(self):
-
-        self._chan = stackless.channel()
-        set_channel_pref(self._chan)
+        self._chan = get_channel()
 
     def wait(self, timeout=None):
         return lock_channel_wait(self._chan, timeout)
@@ -475,8 +473,7 @@ class NLCondition(LockMixin):
 class Event(object):
     def __init__(self):
         self._is_set = False
-        self.chan = stackless.channel()
-        set_channel_pref(self.chan)
+        self.chan = get_channel()
 
     def is_set(self):
         return self._is_set;

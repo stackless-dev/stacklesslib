@@ -10,7 +10,7 @@ import stackless
 
 from stacklesslib.locks import Lock, RLock, Semaphore, Condition, BoundedSemaphore, Event
 from stacklesslib.locks import Barrier, BrokenBarrierError
-from stacklesslib.main import set_channel_pref, sleep
+from stacklesslib.main import sleep
 from stacklesslib.util import local
 import stacklesslib.replacements.thread as thread
 _start_new_thread = thread.start_new_thread
@@ -62,7 +62,6 @@ class Thread(object):
             self.name = name
         self.args, self.kwargs = args, kwargs
         self._join = Event()
-        set_channel_pref(self._join)
         self._started = False
         self._alive = False
         self.ident = None

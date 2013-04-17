@@ -4,7 +4,7 @@ import sys
 import time
 import traceback
 
-from .base import atomic
+from .base import atomic, get_channel
 from .base import time as elapsed_time
 from .events import EventQueue
 
@@ -24,41 +24,18 @@ if not stacklessio:
 
 _sleep = getattr(time, "real_sleep", time.sleep)
 
-# Tools for adjusting the scheduling mode.
-
-SCHEDULING_ROUNDROBIN = 0
-SCHEDULING_IMMEDIATE = 1
-scheduling_mode = SCHEDULING_ROUNDROBIN
-
-
-def set_scheduling_mode(mode):
-    global scheduling_mode
-    old = scheduling_mode
-    if mode is not None:
-        scheduling_mode = mode
-    return old
-
-
-def set_channel_pref(c):
-    if scheduling_mode == SCHEDULING_ROUNDROBIN:
-        c.preference = 0
-    else:
-        c.preference = -1
-
 
 class LoopScheduler(object):
     """ A tasklet scheduler to be used by the loop.  Support tasklet sleeping and sleep_next operations """
     def __init__(self, event_queue):
         self.event_queue = event_queue
-        self.chan = stackless.channel()
-        set_channel_pref(self.chan)
+        self.chan = get_channel()
 
     def sleep(self, delay):
         if delay <= 0:
             c = self.chan
         else:
-            c = stackless.channel()
-            set_channel_pref(c)
+            c = get_channel()
         def wakeup():
             with atomic():
                 if c.balance:

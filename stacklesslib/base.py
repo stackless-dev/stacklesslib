@@ -68,3 +68,29 @@ def switch_trap():
         yield
     finally:
         stackless.switch_trap(-1)
+
+
+# Tools for adjusting the scheduling mode.
+# This is merely a mechanism to get channels with the correct
+# preference.
+SCHEDULING_ROUNDROBIN = 0
+SCHEDULING_IMMEDIATE = 1
+scheduling_mode = SCHEDULING_ROUNDROBIN
+
+def set_scheduling_mode(mode):
+    global scheduling_mode
+    old = scheduling_mode
+    if mode is not None:
+        scheduling_mode = mode
+    return old
+
+def set_channel_pref(c):
+    if scheduling_mode == SCHEDULING_ROUNDROBIN:
+        c.preference = 0
+    else:
+        c.preference = -1
+
+def get_channel():
+    c = stackless.channel()
+    set_channel_pref(c)
+    return c
