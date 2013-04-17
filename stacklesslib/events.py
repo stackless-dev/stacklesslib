@@ -1,6 +1,8 @@
 #events.py
 
+import sys
 import threading
+import traceback
 import heapq
 from .base import time as elapsed_time
 
