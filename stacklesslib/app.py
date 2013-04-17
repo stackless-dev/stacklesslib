@@ -12,8 +12,32 @@ to the functions here, e.g. use "from stacklesslib.app import sleep"
 
 import time
 import threading
-from . import main
 from . import events
+from .base import get_channel, atomic
+
+
+class _SleepHandler(object):
+    """
+    A class to support sleep functionality
+    """
+    def __init__(self):
+        self.chan = get_channel()
+
+    def sleep(self, delay):
+        if delay <= 0:
+            c = self.chan
+        else:
+            c = get_channel()
+        def wakeup():
+            with atomic():
+                if c.balance:
+                    c.send(None)
+        if delay <= 0:
+            _event_queue.call_soon(wakeup)
+        else:
+            _event_queue.call_later(delay, wakeup)
+        c.receive()
+
 
 class _ObjProxy(object):
     def __init__(self, name):
@@ -60,9 +84,11 @@ def install_stackless():
     """
     Set up the globals for a functioning event event loop
     """
+    # import those here, to avoid circular dependencies at import time.
     from . import locks
+    from . import main
     g = globals()
-    g["_sleep"] = main.sleep
+    g["_sleep"] = _SleepHandler().sleep
     g["_Event"] = locks.Event
     g["_Lock"] = locks.Lock
     g["_Rlock"] = locks.RLock

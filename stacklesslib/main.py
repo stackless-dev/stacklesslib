@@ -24,28 +24,6 @@ if not stacklessio:
 
 _sleep = getattr(time, "real_sleep", time.sleep)
 
-
-class LoopScheduler(object):
-    """ A tasklet scheduler to be used by the loop.  Support tasklet sleeping and sleep_next operations """
-    def __init__(self, event_queue):
-        self.event_queue = event_queue
-        self.chan = get_channel()
-
-    def sleep(self, delay):
-        if delay <= 0:
-            c = self.chan
-        else:
-            c = get_channel()
-        def wakeup():
-            with atomic():
-                if c.balance:
-                    c.send(None)
-        if delay <= 0:
-            self.event_queue.call_soon(wakeup)
-        else:
-            self.event_queue.call_later(delay, wakeup)
-        c.receive()
-
 # A mainloop class.
 # It can be subclassed to provide a better interruptable wait, for example on windows
 # using the WaitForSingleObject api, to time out waiting for an event.
@@ -62,7 +40,6 @@ class MainLoop(object):
 
         #take the app global ones.
         self.event_queue = event_queue
-        self.scheduler = scheduler
 
     def add_pump(self, pump):
         if pump not in self.pumps:
@@ -168,13 +145,6 @@ class MainLoop(object):
         """Stop the run"""
         self.running = False
 
-    #these two really should be part of the "App" class.
-    def sleep(self, delay):
-        self.scheduler.sleep(delay)
-
-    def sleep_next(self):
-        self.scheduler.sleep(0)
-
 
 class SLIOMainLoop(MainLoop):
     def wait(self, delay):
@@ -196,12 +166,8 @@ class AsyncoreMainLoop(MainLoop):
             asyncore.poll(delay)
 
 
-# Convenience functions to sleep in the global scheduler.
-def sleep(delay):
-    mainloop.sleep(delay)
-def sleep_next():
-    mainloop.sleep_next()
-
+# Backwards compatibility
+from .app import sleep
 
 # Use the correct main loop type.
 if stacklessio:
@@ -213,5 +179,4 @@ else:
 #mainloopClass = MainLoop
 
 event_queue = EventQueue()
-scheduler = LoopScheduler(event_queue)
 mainloop = mainloopClass()
