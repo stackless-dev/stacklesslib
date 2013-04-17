@@ -3,6 +3,7 @@ import unittest
 import stackless
 
 import stacklesslib.main
+import stacklesslib.app
 
 
 class TestMainLoop(unittest.TestCase):
@@ -64,4 +65,5 @@ def ArbitraryFunc():
 
 
 if __name__ == '__main__':
+    stacklesslib.app.install_stackless()
     unittest.main()
