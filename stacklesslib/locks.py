@@ -13,7 +13,6 @@ from __future__ import absolute_import
 import stackless
 import contextlib
 
-from . import main
 from .base import get_channel
 from .base import time as elapsed_time
 from .base import atomic
