@@ -203,6 +203,7 @@ class timeout_instance(object):
     def match(self, e):
         """returns true if the given object is the exception raised by this instance"""
         return isinstance(e, TimeoutError) and len(e.args) > 1 and e.args[1] is self
+_null_timeout_instance = timeout_instance()
 
 @contextlib.contextmanager
 def timeout(delay, blocked=False):
@@ -214,7 +215,7 @@ def timeout(delay, blocked=False):
     """
     if delay is None or delay < 0:
         # The infinite timeout case
-        yield
+        yield _null_timeout_instance
         return
 
     # waiting_tasklet is used as a senty to show that the original
@@ -261,11 +262,11 @@ def timeout(delay, blocked=False):
             if handle:
                 handle.cancel()
 
-def timeout_call(callable, delay):
+def timeout_call(function, delay):
     """A call wrapper, returning (success, result), where "success" is true if there was no timeout"""
     try:
         with timeout(delay):
-            return True, callable()
+            return True, function()
     except TimeoutError as e:
         return False, e
 
