@@ -94,7 +94,8 @@ class simple_threadpool(dummy_threadpool):
             finally:
                 self.threads_n -= 1
 
-def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, timeout=None):
+def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
+                   timeout=None, onOrphaned=None):
     """Run the given function on a different thread and return the result
        This function blocks on a channel until the result is available.
        Ideal for performing OS type tasks, such as saving files or compressing
@@ -109,4 +110,4 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None, tim
             main.mainloop.interrupt_wait()
     def dispatcher(function):
         pool.submit(function)
-    return call_async(wrapped, dispatcher, timeout=timeout)
+    return call_async(wrapped, dispatcher, timeout=timeout, onOrphaned=onOrphaned)

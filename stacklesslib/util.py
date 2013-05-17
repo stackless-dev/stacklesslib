@@ -163,18 +163,24 @@ def tasklet_dispatcher(function):
     """
     stackless.tasklet(function)()
 
-def call_async(function, dispatcher=tasklet_dispatcher, timeout=None, timeout_exception=WaitTimeoutError):
+def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
+               timeout_exception=WaitTimeoutError, onOrphaned=None):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
        (func), causes asynchronous execution of the function to commence.
        If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
+       If the waiting tasklet is interrupted before the function returns, 'onOrphaned' is called.
     """
     chan = qchannel()
+    done = [False] # avoid local binding in 'helper'
     def helper():
         """This helper marshals the result value over the channel"""
         try:
             try:
-                result = function()
+                try:
+                    result = function()
+                finally:
+                    done[0] = True
             except Exception:
                 send_throw(chan, *sys.exc_info())
             else:
@@ -190,6 +196,8 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None, timeout_ex
             return channel_wait(chan, timeout)
         finally:
             chan.close()
+            if onOrphaned and not done[0]:
+                onOrphaned()
 
 
 # A timeout context manager
