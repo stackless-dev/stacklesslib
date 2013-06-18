@@ -4,7 +4,7 @@
 import runpy
 import sys
 from .monkeypatch import patch_all
-from .app import install_stackless()
+from .app import install_stackless
 
 import stackless
 from . import main
