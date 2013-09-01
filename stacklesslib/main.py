@@ -60,7 +60,7 @@ class MainLoop(object):
         if stackless.runcount > 1:
             return 0.0 # If a tasklet is runnable we do not wait at all.
         next_delay = self.event_queue.due_delay()
-        if next_delay:
+        if next_delay is not None:
             delay = min(self.max_wait_time, next_delay)
             delay = max(delay, 0.0)
         else:
