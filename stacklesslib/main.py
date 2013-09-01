@@ -23,6 +23,8 @@ if not stacklessio:
         pass
 
 _sleep = getattr(time, "real_sleep", time.sleep)
+import threading
+_threading = getattr(threading, "real_threading", threading)
 
 # A mainloop class.
 # It can be subclassed to provide a better interruptable wait, for example on windows
@@ -35,7 +37,7 @@ class MainLoop(object):
     def __init__(self):
         self.max_wait_time = 0.01
         self.running = True
-        self.break_wait = False
+        self.break_wait = _threading.Event()
         self.pumps = []
 
         #take the app global ones.
@@ -80,29 +82,12 @@ class MainLoop(object):
 
     def interruptable_wait(self, delay):
         """Wait until the next event is due.  Override this to break when IO is ready """
-        try:
-            if delay:
-                # Sleep with 10ms granularity to allow another thread to wake us up.
-                t1 = elapsed_time() + delay
-                while True:
-                    if self.break_wait:
-                        # Ignore wakeup if there is nothing to do.
-                        if not event_queue.is_due and stackless.runcount == 1:
-                            self.break_wait = False
-                        else:
-                            break
-                    now = elapsed_time()
-                    remaining = t1-now
-                    if remaining <= 0.0:
-                        break
-                    self.raw_sleep(min(remaining, 0.01))
-        finally:
-            self.break_wait = False
+        self.break_wait.wait(delay)
 
     def interrupt_wait(self):
         # If another thread wants to interrupt the mainloop, e.g. if it
         # has added IO to it.
-        self.break_wait = True
+        self.break_wait.set()
 
     def raw_sleep(self, delay):
         _sleep(delay)
