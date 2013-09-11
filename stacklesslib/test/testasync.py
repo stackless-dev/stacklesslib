@@ -3,6 +3,7 @@ import stackless
 import unittest
 import logging
 import time
+import sys
 
 from stacklesslib import main, app, util, async
 from stacklesslib.errors import TimeoutError
@@ -43,7 +44,7 @@ class TestTask(unittest.TestCase):
         self.assertFalse(t.ready)
         t.wait()
         self.assertTrue(t.ready)
-        self.assertEqual(t.get_result(), ("foo", "bar"))
+        self.assertEqual(t.reap(), ("foo", "bar"))
 
     def testLateWait(self):
         t = GetTask(("foo", "bar"), max = 0.001)
@@ -52,25 +53,25 @@ class TestTask(unittest.TestCase):
         self.assertTrue(t.ready)
         t.wait()
         self.assertTrue(t.ready)
-        self.assertEqual(t.get_result(), ("foo", "bar"))
+        self.assertEqual(t.reap(), ("foo", "bar"))
 
 
     def testGetResult(self):
         t = GetTask(("foo", "bar"))
         self.assertFalse(t.ready)
         t.wait()
-        self.assertEqual(t.get_result(), ("foo", "bar"))
+        self.assertEqual(t.reap(), ("foo", "bar"))
         self.assertTrue(t.ready)
 
     def testErrorTask(self):
         t = GetErrTask()
         self.assertFalse(t.ready)
-        self.assertFalse(t.is_exception)
+        self.assertFalse(t.exception)
         t.wait()
         self.assertTrue(t.ready)
-        self.assertTrue(t.is_exception)
-        self.assertEqual(t.get_exception()[0], ZeroDivisionError)
-        self.assertRaises(ZeroDivisionError, t.get_result)
+        self.assertTrue(t.exception)
+        self.assertEqual(t.exception[0], ZeroDivisionError)
+        self.assertRaises(ZeroDivisionError, t.reap)
 
     def testTimeout(self):
         t = GetErrTask(min=1)
@@ -95,7 +96,7 @@ class TestWaitAll(unittest.TestCase):
             for t in tasks:
                 self.assertTrue(t.ready)
             for i, t in enumerate(tasks):
-                self.assertEqual(t.get_result(), (i,))
+                self.assertEqual(t.reap(), (i,))
 
     def testWaitAllTimeout(self):
         with atomic():
@@ -104,11 +105,11 @@ class TestWaitAll(unittest.TestCase):
             # some should have run
             self.assertGreater(sum(task.ready for task in tasks), 0)
 
-class TestWhenAll(unittest.TestCase):
+class TestWaiterAll(unittest.TestCase):
     def _getTask(self):
          tasks = [GetTask((i,), min=0.001*i, max=0.001*i) for i in range(10)]
          random.shuffle(tasks)
-         return async.Task.when_all(tasks), tasks
+         return async.Task.waiter_all(tasks), tasks
 
     def testWhenAll(self):
         with atomic():
@@ -116,7 +117,7 @@ class TestWhenAll(unittest.TestCase):
             self.assertFalse(t.ready)
             for i in tasks:
                 self.assertFalse(i.ready)
-            r = t.get_result()
+            r = t.reap()
             self.assertEqual(r, None)
             self.assertTrue(t.ready)
             for i in tasks:
@@ -125,7 +126,7 @@ class TestWhenAll(unittest.TestCase):
     def testWhenAllTimeout(self):
         with atomic():
             t, tasks = self._getTask()
-            self.assertRaises(TimeoutError, t.get_result, 0.005)
+            self.assertRaises(TimeoutError, t.reap, 0.005)
             self.assertFalse(t.ready)
 
 
@@ -140,8 +141,8 @@ class TestWaitAny(unittest.TestCase):
             tasks = self._getTasks()
             for t in tasks:
                 self.assertFalse(t.ready)
-            i = async.Task.wait_any(tasks)
-            self.assertTrue(tasks[i].ready)
+            t = async.Task.wait_any(tasks)
+            self.assertTrue(t.ready)
             # one is ready now
             self.assertEqual(sum(task.ready for task in tasks), 1)
 
@@ -150,8 +151,8 @@ class TestWaitAny(unittest.TestCase):
             tasks = self._getTasks()
 
             # This timeout should still allow a task to work.
-            i = async.Task.wait_any(tasks, 0.005)
-            self.assertTrue(tasks[i].ready)
+            t = async.Task.wait_any(tasks, 0.005)
+            self.assertTrue(t.ready)
             self.assertEqual(sum(task.ready for task in tasks), 1)
 
     def testWaitAnyShortTimeout(self):
@@ -163,11 +164,11 @@ class TestWaitAny(unittest.TestCase):
             self.assertEqual(sum(task.ready for task in tasks), 0)
 
 
-class TestWhenAny(unittest.TestCase):
+class TestWaiterAny(unittest.TestCase):
     def _getTask(self):
         tasks = [GetTask((i,), min=0.001*i, max=0.001*i) for i in range(2, 12)]
         random.shuffle(tasks)
-        return async.Task.when_any(tasks), tasks
+        return async.Task.waiter_any(tasks), tasks
 
     def testWhenAny(self):
         with atomic():
@@ -175,8 +176,8 @@ class TestWhenAny(unittest.TestCase):
             self.assertFalse(t.ready)
             for i in tasks:
                 self.assertFalse(i.ready)
-            i = t.get_result()
-            self.assertTrue(tasks[i].ready)
+            t2 = t.reap()
+            self.assertTrue(t2.ready)
             # one is ready now
             self.assertEqual(sum(task.ready for task in tasks), 1)
 
@@ -185,8 +186,8 @@ class TestWhenAny(unittest.TestCase):
             t, tasks= self._getTask()
 
             # This timeout should still allow a task to work.
-            i = t.get_result()
-            self.assertTrue(tasks[i].ready)
+            t2 = t.reap()
+            self.assertTrue(t2.ready)
             self.assertEqual(sum(task.ready for task in tasks), 1)
 
     def testWhenAnyShortTimeout(self):
@@ -194,7 +195,7 @@ class TestWhenAny(unittest.TestCase):
             t, tasks= self._getTask()
 
             # No task should run
-            self.assertRaises(TimeoutError, t.get_result, 0.001)
+            self.assertRaises(TimeoutError, t.reap, 0.001)
             self.assertFalse(t.ready)
             self.assertEqual(sum(task.ready for task in tasks), 0)
 
@@ -242,7 +243,7 @@ class TestAwait(unittest.TestCase):
     def testAwait(self):
         t = self.f4()
         self.events.append(7)
-        r = t.get_result()
+        r = t.reap()
         self.assertEqual(r, "foobar")
         self.assertEvents()
 
@@ -259,7 +260,7 @@ class TestAwait(unittest.TestCase):
         self.events.append(0)
         t = self.f5()
         self.events.append(2)
-        self.assertRaises(TimeoutError, t.get_result)
+        self.assertRaises(TimeoutError, t.reap)
         self.assertEvents()
 
 
@@ -270,7 +271,7 @@ class TestFactories(unittest.TestCase):
 
     def testTasklet(self):
         r = self.taskletTask("foo")
-        self.assertEqual(r.get_result(), "foo")
+        self.assertEqual(r.reap(), "foo")
 
     @async.task(async.threadTaskFactory)
     def threadTask(self, arg):
@@ -278,7 +279,7 @@ class TestFactories(unittest.TestCase):
 
     def testThread(self):
         r = self.threadTask("foo")
-        self.assertEqual(r.get_result(), "foo")
+        self.assertEqual(r.reap(), "foo")
 
     @async.task(async.dummyTaskFactory)
     def dummyTask(self, arg):
@@ -286,7 +287,7 @@ class TestFactories(unittest.TestCase):
 
     def testDummy(self):
         r = self.dummyTask("foo")
-        self.assertEqual(r.get_result(), "foo")
+        self.assertEqual(r.reap(), "foo")
 
 from .support import load_tests
 

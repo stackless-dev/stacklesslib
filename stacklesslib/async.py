@@ -5,7 +5,8 @@ import sys
 import traceback
 import stackless
 import contextlib
-from .util import atomic, timeout
+from .util import atomic
+from .util import timeout as timeout_ctxt
 
 try:
     import threading
@@ -21,178 +22,160 @@ class Event(stackless.channel):
         with atomic():
             if self.balance < 0:
                 self.send(val)
-    def wait(self, delay=None):
-        if delay is None:
+    def wait(self, timeout=None):
+        if timeout is None:
             return self.receive()
-        with timeout(delay):
+        with timeout_ctxt(timeout):
             return self.receive()
 
 class Task(object):
     """Base for all tasks"""
 
     def __init__(self):
-        self.result = None
+        self._result = None
         self.callbacks = []
 
     @property
     def ready(self):
-        return self.result is not None
+        """True if the task has completed execution"""
+        return self._result is not None
 
     @property
-    def is_exception(self):
-        return self.result is not None and not self.result[0]
+    def result(self):
+        """The task successful result or None"""
+        return self._result[1] if self._result and self._result[0] else None
+
+    @property
+    def exception(self):
+        """The task exception tuple or None"""
+        return self._result[1] if self._result and not self._result[0] else None
+
+    def re_raise(self):
+        """Re-raise the exception raised by the task, or return None"""
+        e = self.exception
+        if e:
+            try:
+                raise e[0], e[1], e[2]
+            finally:
+                # Clear the traceback to reduce cyclic links
+                self.clear_exception()
+
+    def clear_exception(self):
+        if self.exception:
+            self._result = (False, (None, None, None))
 
     def when_ready(self, cb):
         """Append a callback when the event is ready"""
         self.callbacks.append(cb)
 
-    def on_ready(self):
+    def _on_ready(self):
         for cb in self.callbacks:
-            cb()
+            cb(self)
 
     def wait(self, timeout=None):
+        """Wait untli task has completed. Returns True if it completed successfully,
+           False if it raised an exception
+        """
         with atomic():
-            if self.result:
-                return
-            e = Event()
-            self.when_ready(e.set)
-            e.wait(timeout)
+            if not self._result:
+                e = Event()
+                self.when_ready(e.set)
+                e.wait(timeout)
+        return self._result[0] 
 
-    def get_result(self, timeout=None):
+
+    def reap(self, timeout=None):
+        """Wait for the execution of the task and return its result or raise
+           its exception.
+        """
         self.wait(timeout)
-        if self.result[0]:
-            return self.result[1]
-        # Consider using "AggregateException" here
-        raise self.result[1][0], self.result[1][1], self.result[1][2]
-
-    def get_exception(self, timeout=None):
-        self.wait(timeout)
-        if self.result[0]:
-            return None
-        return self.result[1]
-
+        self.re_raise()
+        return self.result
+        
     def post_result(self, result):
         assert self.result is None
-        self.result = (True, result)
-        self.on_ready()
+        self._result = (True, result)
+        self._on_ready()
 
     def post_exception(self, exc, val=None, tb=None):
         assert self.result is None
-        self.result = (False, (exc, val, tb))
-        self.on_ready()
+        self._result = (False, (exc, val, tb))
+        self._on_ready()
 
     @classmethod
-    def wait_all(cls, tasks, delay=None):
-        with timeout(delay):
+    def reap_all(cls, tasks, timeout=None):
+        """Get results of all tasks.  If one or more raise
+           an exception, an arbitrary re-raised.
+        """
+        with timeout_ctxt(timeout):
+            return [t.get_result() for t in tasks]
+
+    @classmethod
+    def reap_any(cls, tasks, timeout=None):
+        """Return the result of an arbitrary taskl.  The result is returned
+           as a tuple (i, result), where i is the index in the original list.
+           Can re-raise an exception that was found on an arbitrary task.
+        """
+        return cls.wait_any(tasks, timeout).reap()
+
+    @classmethod
+    def wait_all(cls, tasks, timeout=None):
+        with timeout_ctxt(timeout):
             for t in tasks:
                 t.wait()
 
     @classmethod
-    def wait_any(cls, tasks, delay=None):
+    def wait_any(cls, tasks, timeout=None):
+        """Wait until one of the tasks is ready.  Returns the
+           ready task.
+        """
         e = Event()
         with atomic():
-            for i, t in enumerate(tasks):
+            # See if anyone is ready, otherwise, add a callback to our event
+            for t in tasks:
                 if t.ready:
-                    return i
-                def get_cb(i):
-                    def cb():
-                        e.set(i)
-                    return cb
-                t.when_ready(get_cb(i))
-            return e.wait(delay)
-
+                    return t
+                def cb(t):
+                    e.set(t)
+                t.when_ready(cb)
+            # wait for our event
+            return e.wait(timeout)
+     
+    # class methpods returning tasks that wait/reap all/any   
     @classmethod
-    def when_all(cls, tasks):
+    def waiter_all(cls, tasks):
         return create_task(cls.wait_all, (tasks,))
 
     @classmethod
-    def when_any(cls, tasks):
+    def waiter_any(cls, tasks):
         return create_task(cls.wait_any, (tasks,))
 
     @classmethod
-    def get_results(cls, tasks):
-        try:
-            return [t.get_result() for t in tasks]
-        except:
-            e = sys.exc_info()
-            try:
-                for t in tasks:
-                    t.forget()
-                raise e[0], e[1], e[2]
-            finally:
-                e = None #clear traceback cycle
-
+    def reaper_all(cls, tasks):
+       return create_task(cls.reap_all, (tasks,))
+     
+    @classmethod
+    def reaper_any(cls, tasks):
+        return create_task(cls.reap_any, (tasks,))
+     
 class DummyTask(Task):
-    """A dummy task object"""
+    """A dummy task object.  Work performed on a dummy is
+       simply executed directly as a function call.
+    """
 
 class TaskletTask(Task):
-    """ A Task object which work performed by a tasklet """
+    """ A Task object which work is performed by a tasklet """
     def __init__(self, tasklet):
         super(TaskletTask, self).__init__()
         self.tasklet = tasklet
 
 class ThreadTask(Task):
-    """ A task object that runs on a thread"""
+    """ A task object that runs on a separate thread"""
     def __init__(self, thread):
         super(ThreadTask, self).__init__()
         self.thread = thread
 
 
-class AwaitManager(object):
-    """This class provides the "await" method and is used by
-       Async functions to yield to their caller
-    """
-    def __init__(self, caller):
-        self.caller = caller
-        self.caller_continued = False
-
-    def _continue_caller(self):
-        if not self.caller_continued:
-            self.caller_continued = True
-            self.caller.run()
-
-    def await(self, task, delay=None):
-        with atomic():
-            if task.ready:
-                # get the result without switching
-                return task.get_result()
-            # optionally continue the caller
-            self._continue_caller()
-            # wait for the result, possibly tasklet blocking
-            return task.get_result(delay)
-
-
-def async_call_helper(task, await_manager, callable, args, kwargs):
-    # remove the caller from the runnables queue.  There is a window here where other tasklets
-    # might run, we need perhaps a primitive to perform this task
-    try:
-        await_manager.caller.remove()
-        try:
-            result = callable(await_manager, *args, **kwargs)
-        except:
-            task.post_exception(*sys.exc_info())
-        else:
-            task.post_result(result)
-        finally:
-            with atomic():
-                await_manager._continue_caller()
-    except:
-        print >> sys.stderr, "Unhandled exception in ", callable
-        traceback.print_exc()
-
-def call_async(callable, args=(), kwargs={}):
-    await_manager = AwaitManager(stackless.getcurrent())
-    callee = stackless.tasklet(async_call_helper)
-    task = TaskletTask(callee)
-    with atomic():
-        callee(task, await_manager, callable, args, kwargs)
-        try:
-            # here, a run(remove=True) or a switch() primitive would be useful
-            callee.run()
-        finally:
-            # need this here, in case caller gets awoken by other means, e.g. exception
-            await_manager.caller_continued = True
-    return task
 
 class TaskFactory(object):
     """Base class for TaskFactories"""
@@ -244,19 +227,83 @@ def create_task(callable, args=(), kwargs={}, factory=taskletTaskFactory):
     """Create a task, given a function and arguments"""
     return factory.create_task(callable, args, kwargs)
 
-def async(func):
-    """Wraps a function as an async function, taking an AwaitHelper as the first argument"""
-    @contextlib.wraps(func)
-    def helper(*args, **kwargs):
-        return call_async(func, args, kwargs)
-    return helper
-
 def task(factory=taskletTaskFactory):
     """Wraps a function so that it will be executed as a task"""
     def decorator(func):
-        """Wraps a function as a task"""
         @contextlib.wraps(func)
         def helper(*args, **kwargs):
             return create_task(func, args, kwargs, factory)
         return helper
     return decorator
+
+# Now comes the "await" functionality.  This is a special kind of task
+# that has an Awaiter instance in its first argument which contols
+# execution flow with its caller
+
+class Awaiter(object):
+    """This class provides the "await" method and is used by
+       Async functions to yield to their caller
+    """
+    def __init__(self, caller):
+        self.caller = caller
+        self.caller_continued = False
+
+    def _continue_caller(self):
+        if not self.caller_continued:
+            self.caller.run()
+            self.caller_continued = True
+
+    def await(self, task, timeout=None):
+        with atomic():
+            if task.ready:
+                # get the result without switching
+                return task.reap()
+            # optionally continue the caller
+            self._continue_caller()
+            # wait for the result, possibly tasklet blocking
+            return task.reap(timeout)
+
+
+def async_call_helper(task, awaiter, callable, args, kwargs):
+    # remove the caller from the runnables queue.  There is a window here where other tasklets
+    # might run, we need perhaps a primitive to perform this task
+    try:
+        awaiter.caller.remove()
+        try:
+            result = callable(awaiter, *args, **kwargs)
+        except:
+            task.post_exception(*sys.exc_info())
+        else:
+            task.post_result(result)
+        finally:
+            with atomic(): #for _continue_caller
+                awaiter._continue_caller()
+    except:
+        print >> sys.stderr, "Unhandled exception in ", callable
+        traceback.print_exc()
+
+class AsyncTask(TaskletTask):
+    """A task representing the Async function"""
+
+def call_async(callable, args=(), kwargs={}):
+    awaiter = Awaiter(stackless.getcurrent())
+    callee = stackless.tasklet(async_call_helper)
+    task = AsyncTask(callee)
+    with atomic():
+        callee(task, awaiter, callable, args, kwargs)
+        try:
+            # here, a run(remove=True) or a switch() primitive would be useful
+            callee.run()
+        finally:
+            # need this here, in case caller gets awoken by other means, e.g. exception
+            awaiter.caller_continued = True
+    return task
+
+
+def async(func):
+    """Wraps a function as an async function, taking an Awaiter as the first argument"""
+    @contextlib.wraps(func)
+    def helper(*args, **kwargs):
+        return call_async(func, args, kwargs)
+    return helper
+
