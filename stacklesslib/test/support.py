@@ -25,6 +25,7 @@ class StacklessTestSuite(unittest.TestSuite):
             finally:
                 err = None
 
+
 def load_tests(loader, tests, pattern): # test loader protocol
     suite = StacklessTestSuite()
     suite.addTests(tests)

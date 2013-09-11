@@ -5,7 +5,7 @@ import contextlib
 import weakref
 import collections
 from . import main
-from .errors import TimeoutError
+from .errors import TimeoutError, CancelledError
 from .base import atomic
 from . import app
 
@@ -159,17 +159,24 @@ class qchannel(stackless.channel):
 
 def tasklet_dispatcher(function):
     """
-    A sipmle dispatcher which causes the function to start running on a new tasklet
+    A simple dispatcher which causes the function to start running on a new tasklet
     """
     stackless.tasklet(function)()
 
+def dummy_dispatcher(function):
+    """
+    A dispatcher that simply performs the function call immediately
+    """
+    function()
+
 def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
-               timeout_exception=WaitTimeoutError, onOrphaned=None):
+               onOrphaned=None):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
        (func), causes asynchronous execution of the function to commence.
-       If a result isn't received within an optional time limit, a 'timeout_exception' is raised.
+       If a result isn't received within an optional time limit, a TimeoutError is raised.
        If the waiting tasklet is interrupted before the function returns, 'onOrphaned' is called.
+       If the target tasklet is killed, a CancelledError is raised.
     """
     chan = qchannel()
     done = [False] # avoid local binding in 'helper'
@@ -179,9 +186,11 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
             try:
                 try:
                     result = function()
+                except TaskletExit:
+                    raise CancelledError
                 finally:
                     done[0] = True
-            except Exception:
+            except BaseException:
                 send_throw(chan, *sys.exc_info())
             else:
                 chan.send(result)

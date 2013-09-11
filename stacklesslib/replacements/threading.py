@@ -179,17 +179,17 @@ class _DummyThread(Thread):
 
 class Timer(Thread):
     def __init__(self, interval, function, args=(), kwargs={}):
-        self._canceled = False
+        self._cancelled = False
         self._interval = interval
         self._function = function
         Thread.__init__(self, target=self._function, args=args, kwargs=kwargs)
 
     def cancel(self):
-        self._canceled = True
+        self._cancelled = True
 
     def _function(self, *args, **kwargs):
         app_sleep(self._interval)
-        if not self._canceled:
+        if not self._cancelled:
             self.function(*args, **kwargs)
 
 

@@ -3,4 +3,6 @@
 
 class TimeoutError(RuntimeError):
     """Stackless operation timed out"""
-    pass
+
+class CancelledError(RuntimeError):
+    """The operation was cancelled"""
