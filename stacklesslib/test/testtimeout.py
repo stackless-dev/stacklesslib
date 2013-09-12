@@ -176,19 +176,47 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
     def test_inst(self):
         def one():
             try:
-                with util.timeout(0.01) as inst:
+                exc = TimeoutError()
+                with util.timeout(0.01, exc=exc):
                     app.sleep(1.0)
             except Exception, e:
-                self.assertTrue(inst.match(e))
+                self.assertTrue(e is exc)
                 raise
         def two():
             try:
-                with util.timeout(0.02) as inst:
+                exc = TimeoutError()
+                with util.timeout(0.02, exc=exc):
                     one()
             except Exception, e:
-                self.assertFalse(inst.match(e))
+                self.assertFalse(e is exc)
                 raise
         self.assertRaises(TimeoutError, two)
+
+
+    def test_exc_inst(self):
+        def one():
+            try:
+                exc=ZeroDivisionError("hello")
+                with util.timeout(0.01, exc=exc):
+                    app.sleep(1.0)
+            except Exception, e:
+                self.assertTrue(e is exc)
+                self.assertEqual(e.args[0], "hello")
+                self.assertEqual(type(e), ZeroDivisionError)
+                raise
+        self.assertRaises(ZeroDivisionError, one)
+
+    def test_exc_class(self):
+        def one():
+            try:
+                exc=ZeroDivisionError
+                with util.timeout(0.01, exc=exc):
+                    app.sleep(1.0)
+            except Exception, e:
+                self.assertTrue(type(e) is exc)
+                self.assertEqual(e.args, ())
+                raise
+        self.assertRaises(ZeroDivisionError, one)
 
 from .support import load_tests
 

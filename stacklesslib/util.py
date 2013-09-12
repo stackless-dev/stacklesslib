@@ -47,9 +47,9 @@ class local(object):
             raise AttributeError(name)
 
 
-def channel_wait(chan, delay=None):
+def channel_wait(chan, timeout=None, exc=None):
     """channel.receive with an optional timeout"""
-    with timeout(delay, blocked=True):
+    with _timeout(timeout, blocked=True, exc=exc):
         return chan.receive()
 
 def send_throw(channel, exc, val=None, tb=None):
@@ -214,31 +214,26 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
 class _InternalTimeout(BaseException):
     pass
 
-# A class representing this instance.  Can be consulted to see if the
-# error was thrown from here
-class timeout_instance(object):
-    def match(self, e):
-        """returns true if the given object is the exception raised by this instance"""
-        return isinstance(e, TimeoutError) and len(e.args) > 1 and e.args[1] is self
-_null_timeout_instance = timeout_instance()
 
 @contextlib.contextmanager
-def timeout(delay, blocked=False):
+def timeout(delay, blocked=False, exc=None):
     """
     A context manager which installes a timeout handler and will cause a
     TimeoutError to be raised on the tasklet if it is triggered.
     if "blocked" is true, then the timeout will only occur if the tasklet
     is blocked on a channel.
+    "exc" can be an exception class or an exception instance to raise,
+    otherwise, TimeoutError is raised.
     """
     if delay is None or delay < 0:
         # The infinite timeout case
-        yield _null_timeout_instance
+        yield
         return
 
     # waiting_tasklet is used as a senty to show that the original
     # caller is still in the context manager
     waiting_tasklet = stackless.getcurrent()
-    inst = timeout_instance() # Create a unique instance
+    inst = object() # Create a unique instance
 
     def old_callback():
         with atomic():
@@ -266,18 +261,22 @@ def timeout(delay, blocked=False):
     with atomic():
         handle = app.event_queue.call_later(delay, callback)
         try:
-            yield inst # Run the code
+            yield # Run the code
         except _InternalTimeout as e:
             # Check if it is _our_ exception instance:
             if e.args[0] is inst:
                 # Turn it into the proper timeout
                 handle = None
-                raise TimeoutError("timed out after %ss"%(delay,), inst), None, sys.exc_info()[2]
+                # construct exception
+                if exc is None:
+                    exc = TimeoutError("timed out after %ss"%(delay,))
+                raise exc, None, sys.exc_info()[2]
             raise # it is someone else's error
         finally:
             waiting_tasklet = None
             if handle:
                 handle.cancel()
+_timeout = timeout #to resolve conflict with local variables
 
 def timeout_call(function, delay):
     """A call wrapper, returning (success, result), where "success" is true if there was no timeout"""
