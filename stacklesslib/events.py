@@ -149,7 +149,7 @@ class Handle(object):
         self._queue = queue
         self._sequence = sequence
         # public attributes
-        self.canceled = None
+        self.cancelled = None
         self.callback = callback
         self.args = args
 
@@ -157,16 +157,16 @@ class Handle(object):
         """
         exact semantics of this call are not yet defined, see
         http://www.python.org/dev/peps/pep-3156
-        Currently returns True if it was successfully canceled, False if it had already run
+        Currently returns True if it was successfully cancelled, False if it had already run
         """
-        if self.canceled is not None:
+        if self.cancelled is not None:
             try:
                 self._queue._cancel(self._sequence)
             except ValueError:
-                self.canceled = False # it already ran
+                self.cancelled = False # it already ran
             else:
-                self.canceled = True
-        return self.canceled
+                self.cancelled = True
+        return self.cancelled
 
 class DummyEventQueue(object):
     """
