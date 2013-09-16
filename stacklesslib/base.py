@@ -18,15 +18,19 @@ else:
     # Time.clock reports CPU time on unix, not good.
     time = time.time
 
-@contextmanager
-def atomic():
-    """a context manager to make the tasklet atomic for the duration"""
-    c = stackless.getcurrent()
-    old = c.set_atomic(True)
-    try:
-        yield
-    finally:
-        c.set_atomic(old)
+try:
+    # New versions of stackless have a fast binary implementation of this
+    from stackless import atomic
+except ImportError:
+    @contextmanager
+    def atomic():
+        """a context manager to make the tasklet atomic for the duration"""
+        c = stackless.getcurrent()
+        old = c.set_atomic(True)
+        try:
+            yield
+        finally:
+            c.set_atomic(old)
 
 @contextmanager
 def block_trap(trap=True):
