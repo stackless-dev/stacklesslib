@@ -6,7 +6,7 @@ import weakref
 import collections
 from . import main
 from .errors import TimeoutError, CancelledError
-from .base import atomic
+from .base import atomic, time
 from . import app
 
 WaitTimeoutError = TimeoutError # backwards compatibility
@@ -98,16 +98,16 @@ def tasklet_throw(tasklet, exc, val=None, tb=None, immediate=True):
         val = val.args
     tasklet.raise_exception(exc, *val)
 
-
 class qchannel(stackless.channel):
     """
     A qchannel is like a channel except that it contains a queue, so that the
     sender never blocks.  If there isn't a blocked tasklet waiting for the data,
-    the data is queued up internally.  The sender always continues.
+    the data is queued up internally.
+    Note that while the sender never blocks, the channel priority is still -1
+    so that a receiver, if available, will run immediately.
     """
     def __init__(self):
         self.data_queue = collections.deque()
-        self.preference = 1 #sender never blocks
 
     @property
     def balance(self):
@@ -157,20 +157,23 @@ class qchannel(stackless.channel):
     def __next__(self):
         return self.receive()
 
-def tasklet_dispatcher(function):
+def tasklet_new(function, args=(), kwargs={}):
     """
     A simple dispatcher which causes the function to start running on a new tasklet
     """
-    stackless.tasklet(function)()
+    return stackless.tasklet(function)(*args, **kwargs)
 
-def dummy_dispatcher(function):
+def tasklet_run(function, args=(), kwargs={}):
     """
-    A dispatcher that simply performs the function call immediately
+    A simple dispatcher which causes the function to start running on a new tasklet
+    and execute immediately
     """
-    function()
+    t = stackless.tasklet(function)(*args, **kwargs)
+    t.run()
+    return t
 
-def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
-               onOrphaned=None):
+def tasklet_call(function, args=(), kwargs={},
+        dispatcher=tasklet_run, timeout=None, onOrphaned=None):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
        (func), causes asynchronous execution of the function to commence.
@@ -178,14 +181,14 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
        If the waiting tasklet is interrupted before the function returns, 'onOrphaned' is called.
        If the target tasklet is killed, a CancelledError is raised.
     """
-    chan = qchannel()
+    chan = stackless.channel()
     done = [False] # avoid local binding in 'helper'
     def helper():
         """This helper marshals the result value over the channel"""
         try:
             try:
                 try:
-                    result = function()
+                    result = function(*args, **kwargs)
                 except TaskletExit:
                     raise CancelledError
                 finally:
@@ -213,7 +216,6 @@ def call_async(function, dispatcher=tasklet_dispatcher, timeout=None,
 # First, a hidden inner exception that is not caught by normal exception handlers
 class _InternalTimeout(BaseException):
     pass
-
 
 @contextlib.contextmanager
 def timeout(delay, blocked=False, exc=None):
@@ -295,3 +297,26 @@ def timeout_function(delay):
                 return function(*args, **kwargs)
         return wrapper
     return helper
+
+class Timeouts(object):
+    def __init__(self, delay, blocked=False, exc=None):
+        self.delay = delay
+        self.blocked = False
+        self.exc = exc
+        if delay is not None and delay >= 0:
+            self.deadline = time() + delay
+        else:
+            self.deadline = None
+
+    def timeout(self):
+        if self.deadline is not None:
+            delay = self.deadline - time()
+            if delay < 0 and not self.blocked:
+                # raise the timeout error here
+                if self.exc:
+                    raise self.exc
+                else:
+                    raise TimeoutError
+        else:
+            delay = None
+        return _timeout(delay, self.blocked, self.exc)
