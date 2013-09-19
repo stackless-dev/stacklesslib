@@ -81,7 +81,7 @@ class Task(object):
                 e = Event()
                 self.when_ready(e.set)
                 e.wait(timeout)
-        return self._result[0] 
+        return self._result[0]
 
 
     def reap(self, timeout=None):
@@ -91,7 +91,7 @@ class Task(object):
         self.wait(timeout)
         self.re_raise()
         return self.result
-        
+
     def post_result(self, result):
         assert self.result is None
         self._result = (True, result)
@@ -140,8 +140,8 @@ class Task(object):
                 t.when_ready(cb)
             # wait for our event
             return e.wait(timeout)
-     
-    # class methpods returning tasks that wait/reap all/any   
+
+    # class methpods returning tasks that wait/reap all/any
     @classmethod
     def waiter_all(cls, tasks):
         return create_task(cls.wait_all, (tasks,))
@@ -153,11 +153,11 @@ class Task(object):
     @classmethod
     def reaper_all(cls, tasks):
        return create_task(cls.reap_all, (tasks,))
-     
+
     @classmethod
     def reaper_any(cls, tasks):
         return create_task(cls.reap_any, (tasks,))
-     
+
 class DummyTask(Task):
     """A dummy task object.  Work performed on a dummy is
        simply executed directly as a function call.
