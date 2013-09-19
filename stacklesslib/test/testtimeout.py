@@ -98,7 +98,6 @@ class TestTimeoutFunc(TestTimeout):
         with self.Timer(timeout):
             return call2()
 
-
 class TestRecursion(TimeoutMixin, unittest.TestCase):
     def test_no_inner_catch(self):
 
@@ -217,6 +216,19 @@ class TestRecursion(TimeoutMixin, unittest.TestCase):
                 self.assertEqual(e.args, ())
                 raise
         self.assertRaises(ZeroDivisionError, one)
+
+
+class TestTimeouts(unittest.TestCase):
+    def test_timeouts(self):
+        t = util.Timeouts(0.01)
+        def s():
+            with t.timeout():
+                app.sleep(0.005)
+
+        s() #first one should be ok
+        self.assertRaises(TimeoutError, s)
+        self.assertRaises(TimeoutError, s)
+
 
 from .support import load_tests
 
