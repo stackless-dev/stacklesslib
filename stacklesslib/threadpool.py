@@ -6,7 +6,7 @@ import collections
 import threading
 
 from . import locks, main
-from .util import call_async
+from .util import tasklet_call
 
 #defeat monkeypatching of the "threading" module
 if hasattr(threading, "real_threading"):
@@ -17,14 +17,14 @@ else:
     _RealThread = threading.Thread
 
 
-class dummy_threadpool(object):
+class DummyThreadPool(object):
     """
     A dummy threadpool which always starts a new thread for each request
     """
     def __init__(self, stack_size=None):
         self.stack_size = stack_size
 
-    def stop(self):
+    def shutdown(self, wait=True):
         pass
 
     def start_thread(self, target):
@@ -43,19 +43,27 @@ class dummy_threadpool(object):
     def submit(self, job):
         self.start_thread(job)
 
-class simple_threadpool(dummy_threadpool):
+    def __enter__(self):
+        pass
+    def __exit__(self, *args):
+        self.shutdown()
+
+class SimpleThreadPool(DummyThreadPool):
     def __init__(self, stack_size=None, n_threads=1):
-        super(simple_threadpool, self).__init__(stack_size)
+        super(SimpleThreadPool, self).__init__(stack_size)
         self.threads_max = n_threads
         self.threads_n = 0          # threads running
         self.threads_executing = 0  # threads performing work
         self.cond = _realthreading.Condition()
         self.queue = collections.deque()
 
-    def stop(self):
+    def shutdown(self, wait=True):
         with self.cond:
             self.threads_max = 0
             self.cond.notify_all()
+            if wait:
+                while self.threads_n:
+                    self.cond.wait()
 
     def submit(self, job):
         with self.cond:
@@ -78,7 +86,8 @@ class simple_threadpool(dummy_threadpool):
             try:
                 # Wait for quit or job
                 while True:
-                    self.cond.wait_for(predicate)
+                    while not predicate():
+                        self.cond.wait()
                     if self.threads_n > self.threads_max:
                         return
                     job = self.queue.popleft()
@@ -93,6 +102,7 @@ class simple_threadpool(dummy_threadpool):
                         job = None
             finally:
                 self.threads_n -= 1
+                self.cond.notify()
 
 def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
                    timeout=None, onOrphaned=None):
@@ -101,7 +111,7 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
        Ideal for performing OS type tasks, such as saving files or compressing
     """
     if not pool:
-        pool = dummy_threadpool(stack_size)
+        pool = DummyThreadPool(stack_size)
     # Wrap the function so that it will wake up the main thread when it is done
     def wrapped():
         try:
@@ -110,4 +120,4 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
             main.mainloop.interrupt_wait()
     def dispatcher(function):
         pool.submit(function)
-    return call_async(wrapped, dispatcher, timeout=timeout, onOrphaned=onOrphaned)
+    return tasklet_call(wrapped, dispatcher, timeout=timeout, onOrphaned=onOrphaned)
