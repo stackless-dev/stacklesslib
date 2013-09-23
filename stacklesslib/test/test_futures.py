@@ -24,21 +24,19 @@ _time.time = time.time
 time = _time
 
 
-RUNNING = "running"
-PENDING = RUNNING #no difference
-CANCELLED = "cancelled"
+from stacklesslib.futures import RUNNING, PENDING, CANCELLED, FINISHED
 CANCELLED_AND_NOTIFIED = CANCELLED #no difference
-FINISHED = "finished"
 
 def create_future(state=PENDING, exception=None, result=None):
-    f = Future(None)
+    f = Future()
+    f.state = state
     if state == FINISHED:
         if exception:
             f._result = (False, (exception, None, None))
         else:
             f._result = (True, result)
     elif state == CANCELLED:
-        f._result = (False, None)
+        f._result = (False, (None, ()))
     return f
 
 PENDING_FUTURE = create_future(state=PENDING)
@@ -98,13 +96,16 @@ class ExecutorMixin(unittest.TestCase):
             f.result()
 
 # Use this so that we don't have to change the entire file
-class ThreadPoolMixin(ExecutorMixin):
+class TaskletMixin(ExecutorMixin):
     executor_type = futures.TaskletExecutor
+class ThreadPoolMixin(ExecutorMixin):
+    executor_type = futures.ThreadPoolExecutor
 
 class WaitTests(object):
 
     def test_first_completed(self):
-        future1 = self.executor.submit(mul, 21, 2)
+        #future1 = self.executor.submit(mul, 21, 2)
+        future1 = self.executor.submit(time.sleep, 0.05)
         future2 = self.executor.submit(time.sleep, 0.15)
 
         done, not_done = futures.wait(
@@ -269,8 +270,12 @@ class AsCompletedTests(object):
                          completed_futures)
 
 
+class TaskletAsCompletedTests(TaskletMixin, AsCompletedTests):
+    pass
+
 class ThreadPoolAsCompletedTests(ThreadPoolMixin, AsCompletedTests):
     pass
+
 
 
 class ExecutorTest(object):
@@ -334,7 +339,7 @@ class ExecutorTest(object):
                         "Stale reference not collected within timeout.")
 
 
-class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest):
+class TaskletExecutorTest(TaskletMixin, ExecutorTest):
     def test_map_submits_without_iteration(self):
         """Tests verifying issue 11777."""
         finished = []
@@ -347,6 +352,9 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest):
         first, second = finished, range(10)
         self.assertEqual(Counter(list(first)), Counter(list(second)))
 
+class ThreadPoolExecutorTest(ThreadPoolMixin, TaskletExecutorTest):
+    pass
+
 
 class FutureTests(unittest.TestCase):
     def test_done_callback_with_result(self):
@@ -354,7 +362,7 @@ class FutureTests(unittest.TestCase):
         def fn(callback_future):
             callback_result[0] = callback_future.result()
 
-        f = Future()
+        f = create_future(RUNNING)
         f.add_done_callback(fn)
         f.set_result(5)
         self.assertEqual(5, callback_result[0])
@@ -364,7 +372,7 @@ class FutureTests(unittest.TestCase):
         def fn(callback_future):
             callback_exception[0] = callback_future.exception()
 
-        f = Future()
+        f = create_future(RUNNING)
         f.add_done_callback(fn)
         f.set_exception(Exception, ('test',))
         self.assertEqual(('test',), callback_exception[0][1].args)
@@ -391,7 +399,7 @@ class FutureTests(unittest.TestCase):
             def fn(callback_future):
                 fn_was_called[0] = True
 
-            f = Future()
+            f = create_future(RUNNING)
             f.add_done_callback(raising_fn)
             f.add_done_callback(fn)
             f.set_result(5)
@@ -404,7 +412,7 @@ class FutureTests(unittest.TestCase):
         def fn(callback_future):
             callback_result[0] = callback_future.result()
 
-        f = Future()
+        f = create_future(RUNNING)
         f.set_result(5)
         f.add_done_callback(fn)
         self.assertEqual(5, callback_result[0])
@@ -414,7 +422,7 @@ class FutureTests(unittest.TestCase):
         def fn(callback_future):
             callback_exception[0] = callback_future.exception()
 
-        f = Future()
+        f = create_future(RUNNING)
         f.set_exception(Exception, ('test',))
         f.add_done_callback(fn)
         self.assertEqual(('test',), callback_exception[0][1].args)
@@ -515,7 +523,7 @@ class FutureTests(unittest.TestCase):
             time.sleep(0.1)
             f1.set_result(42)
 
-        f1 = create_future(state=PENDING)
+        f1 = create_future(state=RUNNING)
         t = threading.Thread(target=notification)
         t.start()
 
