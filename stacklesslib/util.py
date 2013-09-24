@@ -320,3 +320,40 @@ class Timeouts(object):
         else:
             delay = None
         return _timeout(delay, self.blocked, self.exc)
+
+
+class _InternalCancel(BaseException):
+    """Used internally to signal cancel"""
+
+class cancellable(object):
+    """A context manager that serves as a handle to cancel tasklets."""
+    def __init__(self):
+        self.tasklet = None
+        self.exception = None
+
+    def __enter__(self):
+        assert self.tasklet is None # recursion not permitted
+        self.tasklet = stackless.getcurrent()
+
+    def __exit__(self, exc, val, tb):
+        if exc is _InternalCancel and val.args[0] is self:
+            assert self.tasklet is False
+            self.exception = CancelledError(*val.args[1])
+            raise self.exception, None, tb
+        else:
+            assert self.tasklet is stackless.getcurrent()
+            self.tasklet = None
+
+    def cancel(self, *args):
+        with atomic():
+            t = self.tasklet
+            if t:
+                self.tasklet = False # Signal cancellation
+                t.raise_exception(_InternalCancel, self, args)
+
+    def cancelled(self):
+        return self.tasklet is False
+
+    def match(self, val):
+        return self.exception is not None and self.exception is val
+

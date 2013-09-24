@@ -52,6 +52,133 @@ class TestTaskletCallRun(TestTaskletCallNew):
         return util.tasklet_run
 
 
+class TestCancellable(unittest.TestCase):
+
+    def testCancel(self):
+        handle = util.cancellable()
+        c = stackless.channel()
+
+        def foo():
+            with handle:
+                c.receive()
+
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle)
+        self.assertRaises(CancelledError, foo)
+
+
+    def testCancelSelf(self):
+        handle = util.cancellable()
+        c = stackless.channel()
+
+        def foo():
+            with handle:
+                handle.cancel()
+        self.assertRaises(CancelledError, foo)
+
+
+    def testCancelArgs(self):
+        handle = util.cancellable()
+        c = stackless.channel()
+        def foo():
+            with handle:
+                c.receive()
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle)
+        try:
+            foo()
+        except CancelledError as e:
+            self.assertEqual(e.args, ("foo", "bar"))
+
+    def testCancelMatch(self):
+        handle = util.cancellable()
+        c = stackless.channel()
+        def foo():
+            with handle:
+                c.receive()
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle)
+        try:
+            foo()
+        except CancelledError as e:
+            self.assertTrue(handle.match(e))
+
+    def testCancelMatchFail(self):
+        handle1 = util.cancellable()
+        handle2 = util.cancellable()
+        c = stackless.channel()
+        def foo():
+            with handle1:
+                with handle2:
+                    c.receive()
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle2)
+        try:
+            foo()
+        except CancelledError as e:
+            self.assertFalse(handle1.match(e))
+            self.assertTrue(handle2.match(e))
+
+    def testCancelMatchFail2(self):
+        handle1 = util.cancellable()
+        handle2 = util.cancellable()
+        c = stackless.channel()
+        def foo():
+            #with handle1:
+                with handle2:
+                    c.receive()
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle2)
+        try:
+            foo()
+        except CancelledError as e:
+            self.assertFalse(handle1.match(e))
+            self.assertTrue(handle2.match(e))
+
+    def testCancelMatchFail3(self):
+        handle1 = util.cancellable()
+        handle2 = util.cancellable()
+        c = stackless.channel()
+        def foo():
+            with handle1:
+                with handle2:
+                    c.receive()
+        def cancellor(handle):
+            handle.cancel("foo", "bar")
+        t = stackless.tasklet(cancellor)(handle1)
+        try:
+            foo()
+        except CancelledError as e:
+            self.assertFalse(handle2.match(e))
+            self.assertTrue(handle1.match(e))
+
+    def testCancelFail(self):
+        handle = util.cancellable()
+        handle.cancel()
+        self.assertFalse(handle.cancelled())
+
+    def testCancelFail2(self):
+        handle = util.cancellable()
+        def foo():
+            with handle:
+                return
+        foo()
+        handle.cancel()
+        self.assertFalse(handle.cancelled())
+
+    def testCancelMatchFail4(self):
+        handle = util.cancellable()
+        self.assertFalse(handle.match(CancelledError()))
+        self.assertFalse(handle.match(CancelledError))
+        self.assertFalse(handle.match(1))
+        self.assertFalse(handle.match("fpp"))
+        self.assertFalse(handle.match(None))
+
 from .support import load_tests
 
 if __name__ == "__main__":
