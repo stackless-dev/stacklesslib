@@ -68,6 +68,25 @@ class TestCancellable(unittest.TestCase):
         self.assertRaises(CancelledError, foo)
 
 
+    def testCancelled(self):
+        handle = util.cancellable()
+        c = stackless.channel()
+
+        def foo():
+            with handle:
+                c.receive()
+
+        def cancellor(handle):
+            self.assertFalse(handle.cancelled())
+            handle.cancel("foo", "bar")
+            self.assertTrue(handle.cancelled())
+
+        self.assertFalse(handle.cancelled())
+        t = stackless.tasklet(cancellor)(handle)
+        self.assertRaises(CancelledError, foo)
+        self.assertTrue(handle.cancelled())
+
+
     def testCancelSelf(self):
         handle = util.cancellable()
         c = stackless.channel()
