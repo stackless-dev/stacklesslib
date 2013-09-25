@@ -570,6 +570,17 @@ class FutureTests(unittest.TestCase):
 
         self.assertTrue(isinstance(f1.exception(timeout=5), OSError))
 
+class TestConvenience(unittest.TestCase):
+    def test_all(self):
+        f0 = futures.tasklet_executor.submit(lambda:(time.sleep(0.1), 0))
+        f1 = futures.tasklet_executor.submit(lambda:(time.sleep(0.2), 1))
+        self.assertEqual(set(futures.all_results((f0, f1))), set([(None, 0), (None, 1)]))
+
+    def test_any(self):
+        f0 = futures.tasklet_executor.submit(lambda:(time.sleep(0.1), 0))
+        f1 = futures.tasklet_executor.submit(lambda:(time.sleep(0.2), 1))
+        r = futures.any_result((f0, f1))
+        self.assertTrue(r in [(None, 0), (None, 1)])
 
 from .support import load_tests
 

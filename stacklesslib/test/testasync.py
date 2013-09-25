@@ -5,7 +5,7 @@ import logging
 import time
 import sys
 
-from stacklesslib import main, app, util, async
+from stacklesslib import main, app, util, async, futures
 from stacklesslib.errors import TimeoutError
 from stacklesslib.util import atomic
 import random
@@ -30,174 +30,55 @@ def GetErrFunc(exception=ZeroDivisionError, min=0.000001, max=0.01):
     return f
 
 def GetTask(args, min=0.000001, max=0.01):
-    return async.create_task(GetSleepFunc(min, max), args)
+    return async.create_future(GetSleepFunc(min, max), args)
 
 def GetErrTask(exception=ZeroDivisionError, min=0.000001, max=0.01):
-    return async.create_task(GetErrFunc(exception, min, max))
+    return async.create_future(GetErrFunc(exception, min, max))
 
 class TestTask(unittest.TestCase):
     def testTask(self):
-        t = async.create_task(GetSleepFunc)
+        t = async.create_future(GetSleepFunc)
 
     def testWait(self):
         t = GetTask(("foo", "bar"))
-        self.assertFalse(t.ready)
+        self.assertFalse(t.done())
         t.wait()
-        self.assertTrue(t.ready)
-        self.assertEqual(t.reap(), ("foo", "bar"))
+        self.assertTrue(t.done())
+        self.assertEqual(t.result(), ("foo", "bar"))
 
     def testLateWait(self):
         t = GetTask(("foo", "bar"), max = 0.001)
-        self.assertFalse(t.ready)
+        self.assertFalse(t.done())
         main.sleep(0.002)
-        self.assertTrue(t.ready)
+        self.assertTrue(t.done())
         t.wait()
-        self.assertTrue(t.ready)
-        self.assertEqual(t.reap(), ("foo", "bar"))
+        self.assertTrue(t.done())
+        self.assertEqual(t.result(), ("foo", "bar"))
 
 
     def testGetResult(self):
         t = GetTask(("foo", "bar"))
-        self.assertFalse(t.ready)
+        self.assertFalse(t.done())
         t.wait()
-        self.assertEqual(t.reap(), ("foo", "bar"))
-        self.assertTrue(t.ready)
+        self.assertEqual(t.result(), ("foo", "bar"))
+        self.assertTrue(t.done())
 
     def testErrorTask(self):
         t = GetErrTask()
-        self.assertFalse(t.ready)
-        self.assertFalse(t.exception)
+        self.assertFalse(t.done())
         t.wait()
-        self.assertTrue(t.ready)
-        self.assertTrue(t.exception)
-        self.assertEqual(t.exception[0], ZeroDivisionError)
-        self.assertRaises(ZeroDivisionError, t.reap)
+        self.assertTrue(t.done())
+        self.assertTrue(t.exception())
+        self.assertEqual(t.exception()[0], ZeroDivisionError)
+        self.assertRaises(ZeroDivisionError, t.result)
 
     def testTimeout(self):
         t = GetErrTask(min=1)
-        self.assertFalse(t.ready)
+        self.assertFalse(t.done())
         self.assertRaises(TimeoutError, t.wait, 0.001)
-        self.assertFalse(t.ready)
+        self.assertFalse(t.done())
 
 
-class TestWaitAll(unittest.TestCase):
-    def _getTasks(self, shuffle=True):
-         tasks = [GetTask((i,), min=0.001*i, max=0.001*i) for i in range(10)]
-         if shuffle:
-            random.shuffle(tasks)
-         return tasks
-
-    def testWaitAll(self):
-        with atomic():
-            tasks = self._getTasks(False)
-            for t in tasks:
-                self.assertFalse(t.ready)
-            async.Task.wait_all(tasks)
-            for t in tasks:
-                self.assertTrue(t.ready)
-            for i, t in enumerate(tasks):
-                self.assertEqual(t.reap(), (i,))
-
-    def testWaitAllTimeout(self):
-        with atomic():
-            tasks = self._getTasks()
-            self.assertRaises(TimeoutError, async.Task.wait_all, tasks, 0.005)
-            # some should have run
-            self.assertGreater(sum(task.ready for task in tasks), 0)
-
-class TestWaiterAll(unittest.TestCase):
-    def _getTask(self):
-         tasks = [GetTask((i,), min=0.001*i, max=0.001*i) for i in range(10)]
-         random.shuffle(tasks)
-         return async.Task.waiter_all(tasks), tasks
-
-    def testWhenAll(self):
-        with atomic():
-            t, tasks = self._getTask()
-            self.assertFalse(t.ready)
-            for i in tasks:
-                self.assertFalse(i.ready)
-            r = t.reap()
-            self.assertEqual(r, None)
-            self.assertTrue(t.ready)
-            for i in tasks:
-                self.assertTrue(i.ready)
-
-    def testWhenAllTimeout(self):
-        with atomic():
-            t, tasks = self._getTask()
-            self.assertRaises(TimeoutError, t.reap, 0.005)
-            self.assertFalse(t.ready)
-
-
-class TestWaitAny(unittest.TestCase):
-    def _getTasks(self, offset=0.002):
-        tasks = [GetTask((i,), min=offset + 0.001*i, max=offset + 0.001*i) for i in range(10)]
-        random.shuffle(tasks)
-        return tasks
-
-    def testWaitAny(self):
-        with atomic():
-            tasks = self._getTasks()
-            for t in tasks:
-                self.assertFalse(t.ready)
-            t = async.Task.wait_any(tasks)
-            self.assertTrue(t.ready)
-            # one is ready now
-            self.assertEqual(sum(task.ready for task in tasks), 1)
-
-    def testWaitAnyTimeout(self):
-        with atomic():
-            tasks = self._getTasks()
-
-            # This timeout should still allow a task to work.
-            t = async.Task.wait_any(tasks, 0.005)
-            self.assertTrue(t.ready)
-            self.assertEqual(sum(task.ready for task in tasks), 1)
-
-    def testWaitAnyShortTimeout(self):
-        with atomic():
-            tasks = self._getTasks()
-
-            # No task should run
-            self.assertRaises(TimeoutError, async.Task.wait_any, tasks, 0.001)
-            self.assertEqual(sum(task.ready for task in tasks), 0)
-
-
-class TestWaiterAny(unittest.TestCase):
-    def _getTask(self):
-        tasks = [GetTask((i,), min=0.001*i, max=0.001*i) for i in range(2, 12)]
-        random.shuffle(tasks)
-        return async.Task.waiter_any(tasks), tasks
-
-    def testWhenAny(self):
-        with atomic():
-            t, tasks= self._getTask()
-            self.assertFalse(t.ready)
-            for i in tasks:
-                self.assertFalse(i.ready)
-            t2 = t.reap()
-            self.assertTrue(t2.ready)
-            # one is ready now
-            self.assertEqual(sum(task.ready for task in tasks), 1)
-
-    def testWhenAnyTimeout(self):
-        with atomic():
-            t, tasks= self._getTask()
-
-            # This timeout should still allow a task to work.
-            t2 = t.reap()
-            self.assertTrue(t2.ready)
-            self.assertEqual(sum(task.ready for task in tasks), 1)
-
-    def testWhenAnyShortTimeout(self):
-        with atomic():
-            t, tasks= self._getTask()
-
-            # No task should run
-            self.assertRaises(TimeoutError, t.reap, 0.001)
-            self.assertFalse(t.ready)
-            self.assertEqual(sum(task.ready for task in tasks), 0)
 
 class TestAwait(unittest.TestCase):
     def setUp(self):
@@ -243,11 +124,11 @@ class TestAwait(unittest.TestCase):
     def testAwait(self):
         t = self.f4()
         self.events.append(7)
-        r = t.reap()
+        r = t.result()
         self.assertEqual(r, "foobar")
         self.assertEvents()
 
-    @async.task()
+    @async.future()
     def sleep(self, d):
         main.sleep(d)
 
@@ -260,34 +141,26 @@ class TestAwait(unittest.TestCase):
         self.events.append(0)
         t = self.f5()
         self.events.append(2)
-        self.assertRaises(TimeoutError, t.reap)
+        self.assertRaises(TimeoutError, t.result)
         self.assertEvents()
 
 
 class TestFactories(unittest.TestCase):
-    @async.task(async.taskletTaskFactory)
+    @async.future(futures.tasklet_executor)
     def taskletTask(self, arg):
         return arg
 
     def testTasklet(self):
         r = self.taskletTask("foo")
-        self.assertEqual(r.reap(), "foo")
+        self.assertEqual(r.result(), "foo")
 
-    @async.task(async.threadTaskFactory)
+    @async.future(futures.thread_executor)
     def threadTask(self, arg):
         return arg
 
     def testThread(self):
         r = self.threadTask("foo")
-        self.assertEqual(r.reap(), "foo")
-
-    @async.task(async.dummyTaskFactory)
-    def dummyTask(self, arg):
-        return arg
-
-    def testDummy(self):
-        r = self.dummyTask("foo")
-        self.assertEqual(r.reap(), "foo")
+        self.assertEqual(r.result(), "foo")
 
 from .support import load_tests
 

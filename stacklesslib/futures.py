@@ -11,14 +11,15 @@ from .util import timeout as _timeout
 from .util import tasklet_run, atomic
 from weakref import WeakSet
 
-
-
 class TaskletExecutorBase(object):
     """Base class for TaskFactories"""
 
     def submit(self, fn, *args, **kwargs):
         # Get rid of the annoying varargs api and allow a
         # pre-existing future to be passed in.
+        return self.submit_future(Future(), (fn, args, kwargs))
+
+    def submit_args(self, fn, args={}, kwargs={}):
         return self.submit_future(Future(), (fn, args, kwargs))
 
     def map(self, fn, *iterables, **kwds):
@@ -41,17 +42,7 @@ class TaskletExecutorBase(object):
     @staticmethod
     def execute_future(future, fn, args, kwargs={}):
         """Execute the job and future on the current tasklet"""
-        try:
-            try:
-                if future.attach(): # associate with this tasklet if needed.
-                    future.set_result(fn(*args, **kwargs))
-            except TaskletExit as e:
-                future.set_cancel(e.args)
-            except BaseException:
-                future.set_exception(*sys.exc_info())
-        except:
-            print >> sys.stderr, "Unhandled exception in ", callable
-            traceback.print_exc()
+        future.execute(fn, args, kwargs)
 
     def __enter__(self):
         pass
@@ -194,6 +185,20 @@ class Future(object):
         self.callbacks = []
         self.tasklet = None
 
+    def execute(self, fn, args=(), kwargs={}):
+        """Execute job and future on the current tasklet"""
+        try:
+            try:
+                if self.attach(): # associate with this tasklet if needed.
+                    self.set_result(fn(*args, **kwargs))
+            except TaskletExit as e:
+                self.set_cancel(e.args)
+            except BaseException:
+                self.set_exception(*sys.exc_info())
+        except:
+            print >> sys.stderr, "Unhandled exception in ", callable
+            traceback.print_exc()
+
     def attach(self):
         with atomic():
             assert self.state in (PENDING, CANCELLED)
@@ -249,7 +254,7 @@ class Future(object):
             assert self.state is CANCELLED
             raise CancelledError(*result[1])
 
-    def wait(self, timeout):
+    def wait(self, timeout=None):
         """Wait until the future has finished or been cancelled"""
         with atomic():
             if not self.done():
@@ -324,7 +329,6 @@ def wait(fs, timeout=None, return_when=ALL_COMPLETED):
                 not_done.remove(f)
                 done.add(f)
                 e.set()
-            do_wait = not done
         elif return_when == FIRST_EXCEPTION:
             def when_done(f):
                 not_done.remove(f)
@@ -332,15 +336,12 @@ def wait(fs, timeout=None, return_when=ALL_COMPLETED):
                 # "canceled" does not constitute an exception in this sense
                 if not not_done or (not f.cancelled() and f.exception()):
                     e.set()
-            if not not_done:
-                do_wait = False #if not done is empty
         elif return_when == ALL_COMPLETED:
             def when_done(f):
                 not_done.remove(f)
                 done.add(f)
                 if not not_done:
                     e.set()
-            do_wait = not_done
         else:
             raise ValueError(return_when)
 
@@ -388,3 +389,12 @@ def as_completed(fs, timeout=None):
             f = channel.receive()
         # Never yield out of the timeout context
         yield f
+
+
+# Convenience functions to gather all or any result from a set of futures
+def all_results(fs, timeout=None):
+    with util.timeout(timeout):
+        return [f.result() for f in fs]
+
+def any_result(fs, timeout=None):
+    return next(as_completed(fs, timeout)).result()
