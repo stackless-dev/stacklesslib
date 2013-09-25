@@ -334,6 +334,7 @@ class cancellable(object):
     def __enter__(self):
         assert self.tasklet is None # recursion not permitted
         self.tasklet = stackless.getcurrent()
+        return self
 
     def __exit__(self, exc, val, tb):
         if exc is _InternalCancel and val.args[0] is self:

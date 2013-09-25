@@ -198,6 +198,11 @@ class TestCancellable(unittest.TestCase):
         self.assertFalse(handle.match("fpp"))
         self.assertFalse(handle.match(None))
 
+    def testSelf(self):
+        handle = util.cancellable()
+        with handle as h:
+            self.assertTrue(handle is h)
+
 from .support import load_tests
 
 if __name__ == "__main__":
