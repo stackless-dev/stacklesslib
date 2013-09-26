@@ -176,11 +176,12 @@ def tasklet_call(function, args=(), kwargs={},
         dispatcher=tasklet_run, timeout=None, onOrphaned=None):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
-       (func), causes asynchronous execution of the function to commence.
+       (func, args, kwargs) causes asynchronous execution of the function to commence.
        If a result isn't received within an optional time limit, a TimeoutError is raised.
        If the waiting tasklet is interrupted before the function returns, 'onOrphaned' is called.
        If the target tasklet is killed, a CancelledError is raised.
     """
+    # use a regular channel with reader priority so that we get woken up promply.
     chan = stackless.channel()
     done = [False] # avoid local binding in 'helper'
     def helper():
@@ -189,8 +190,8 @@ def tasklet_call(function, args=(), kwargs={},
             try:
                 try:
                     result = function(*args, **kwargs)
-                except TaskletExit:
-                    raise CancelledError
+                except TaskletExit as e:
+                    raise CancelledError(*e.args)
                 finally:
                     done[0] = True
             except BaseException:
