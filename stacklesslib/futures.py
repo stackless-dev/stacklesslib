@@ -19,7 +19,7 @@ class TaskletExecutorBase(object):
         # pre-existing future to be passed in.
         return self.submit_future(Future(), (fn, args, kwargs))
 
-    def submit_args(self, fn, args={}, kwargs={}):
+    def submit_args(self, fn, args=(), kwargs={}):
         return self.submit_future(Future(), (fn, args, kwargs))
 
     def map(self, fn, *iterables, **kwds):
