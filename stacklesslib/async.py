@@ -86,4 +86,3 @@ def async(func):
     def helper(*args, **kwargs):
         return call_async(func, args, kwargs)
     return helper
-

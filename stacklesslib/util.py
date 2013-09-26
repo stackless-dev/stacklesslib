@@ -302,7 +302,7 @@ def timeout_function(delay):
 class Timeouts(object):
     def __init__(self, delay, blocked=False, exc=None):
         self.delay = delay
-        self.blocked = False
+        self.blocked = blocked
         self.exc = exc
         if delay is not None and delay >= 0:
             self.deadline = time() + delay
@@ -358,4 +358,3 @@ class cancellable(object):
 
     def match(self, val):
         return self.exception is not None and self.exception is val
-

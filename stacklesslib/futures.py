@@ -2,13 +2,12 @@
 
 import sys
 import traceback
-import time
 import collections
 import stackless
 from .errors import TimeoutError, CancelledError
 from . import util, threadpool
 from .util import timeout as _timeout
-from .util import tasklet_run, atomic
+from .util import atomic
 from weakref import WeakSet
 
 class TaskletExecutorBase(object):
@@ -120,7 +119,7 @@ class BoundedExecutorMixIn(object):
                     raise
             else:
                 future = Future()
-                self.jobs.append((future ,job))
+                self.jobs.append((future, job))
             return future
 
     def execute_future(self, future, fn, args, kwargs={}):
@@ -141,7 +140,7 @@ class BoundedExecutorMixIn(object):
 class ThreadPoolExecutor(WaitingExecutorMixIn, ThreadPoolExecutorBase):
     def __init__(self, max_workers=None):
         WaitingExecutorMixIn.__init__(self)
-        pool = threadpool.SimpleThreadPool(n_threads = max_workers);
+        pool = threadpool.SimpleThreadPool(n_threads = max_workers)
         ThreadPoolExecutorBase.__init__(self, pool)
 
 # and a generate tasklet executor
@@ -298,7 +297,7 @@ class Future(object):
                     val = exc
                     exc = type(exc)
                 elif isinstance(val, tuple):
-                        val = exc(*val)
+                    val = exc(*val)
                 self._result = (False, (exc, val, tb))
                 self.state = FINISHED
                 self._on_ready()
