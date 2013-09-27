@@ -10,7 +10,7 @@ from .util import timeout as _timeout
 from .util import atomic
 from weakref import WeakSet
 
-class TaskletExecutorBase(object):
+class ExecutorBase(object):
     """Base class for TaskFactories"""
 
     def submit(self, fn, *args, **kwargs):
@@ -51,7 +51,7 @@ class TaskletExecutorBase(object):
     def shutdown(self, wait=True):
         pass
 
-class ThreadPoolExecutorBase(TaskletExecutorBase):
+class ThreadPoolExecutorBase(ExecutorBase):
     """Runs futures on a given threadpool"""
     def __init__(self, pool):
         self.pool = pool
@@ -65,17 +65,33 @@ class ThreadPoolExecutorBase(TaskletExecutorBase):
     def shutdown(self, wait=True):
         self.pool.shutdown(wait)
 
-class SimpleTaskletExecutor(TaskletExecutorBase):
+class NullExecutor(ExecutorBase):
+    """This executor will not do anything"""
+    def submit_future(self, future, job):
+        return future
+
+class DirectExecutor(ExecutorBase):
+    """This executor just runs the job straight away."""
+    def submit_future(self, future, job):
+        self.execute_future(future, *job)
+        return future
+
+class SimpleTaskletExecutor(ExecutorBase):
+    """Runs the job as a new tasklet on this thread"""
     def submit_future(self, future, job):
         stackless.tasklet(self.execute_future)(future, *job)
         return future
 
-class ImmediateTaskletExecutor(TaskletExecutorBase):
+class ImmediateTaskletExecutor(SimpleTaskletExecutor):
+    """Runs the job as a new tasklet and switches to it directly"""
+
     def submit_future(self, future, job):
         stackless.tasklet(self.execute_future)(future, *job).run()
         return future
 
 # create a module static instances of the above
+null_executor = NullExecutor()
+direct_executor = DirectExecutor()
 thread_executor = ThreadPoolExecutorBase(threadpool.DummyThreadPool())
 tasklet_executor = SimpleTaskletExecutor()
 immediate_tasklet_executor = ImmediateTaskletExecutor()

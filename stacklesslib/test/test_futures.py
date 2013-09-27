@@ -582,6 +582,36 @@ class TestConvenience(unittest.TestCase):
         r = futures.any_result((f0, f1))
         self.assertTrue(r in [(None, 0), (None, 1)])
 
+class TestExecutors(unittest.TestCase):
+    def test_direct(self):
+        f = futures.direct_executor.submit(mul, 2, 3)
+        self.assertTrue(f.done())
+        self.assertEqual(f.result(), mul(2, 3))
+
+    def test_null(self):
+        f = futures.null_executor.submit(mul, 2, 3)
+        self.assertFalse(f.done())
+        def foo():
+            return f.result(timeout=0.01)
+        self.assertRaises(futures.TimeoutError, foo)
+
+    def test_tasklet(self):
+        f = futures.tasklet_executor.submit(mul, 2, 3)
+        self.assertFalse(f.done())
+        self.assertEqual(f.result(), mul(2, 3))
+
+    def test_tmmediate(self):
+        f = futures.immediate_tasklet_executor.submit(mul, 2, 3)
+        self.assertTrue(f.done())
+        self.assertEqual(f.result(), mul(2, 3))
+
+    def test_threading(self):
+        import threading
+        def foo():
+            return threading.current_thread().ident
+        f = futures.thread_executor.submit(foo)
+        self.assertNotEqual(f.result(), threading.current_thread().ident)
+
 from .support import load_tests
 
 if __name__ == "__main__":
