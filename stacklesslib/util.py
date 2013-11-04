@@ -75,14 +75,14 @@ def send_throw(channel, exc, val=None, tb=None):
         val = val.args
     channel.send_exception(exc, *val)
 
-def tasklet_throw(tasklet, exc, val=None, tb=None, immediate=True):
+def tasklet_throw(tasklet, exc, val=None, tb=None, pending=False):
     """
     Throw an exception on a tasklet.  Emulates the new functionality
     for those versions that don't have tasklet.throw.
-    Note, that delivery in those cases is always immediate.
+    Note, that delivery in those cases is always immediate (pending==False).
     """
     if hasattr(tasklet, "throw"):
-        return tasklet.throw(exc, val, tb, immediate)
+        return tasklet.throw(exc, val, tb, pending)
     #currently, channel.send_exception allows only (type, arg1, ...)
     #and can"t cope with tb
     if exc is None:
@@ -251,7 +251,7 @@ def timeout(delay, blocked=False, exc=None):
                 if blocked and not waiting_tasklet.blocked:
                     return # Don't timeout a non-blocked tasklets
                 try:
-                    waiting_tasklet.throw(_InternalTimeout(inst), immediate=False)
+                    waiting_tasklet.throw(_InternalTimeout(inst), pending=True)
                 except AttributeError:
                     # tasklet.throw is new. Fallback to raise_exception
                     # raise_exception is immediate, so we must call it on a tasklet
