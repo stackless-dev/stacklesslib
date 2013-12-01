@@ -120,4 +120,4 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
             main.mainloop.interrupt_wait()
     def dispatcher(function):
         pool.submit(function)
-    return tasklet_call(wrapped, dispatcher, timeout=timeout, onOrphaned=onOrphaned)
+    return tasklet_call(wrapped, dispatcher=dispatcher, timeout=timeout, onOrphaned=onOrphaned)
