@@ -8,4 +8,4 @@ It provides synchronization primitives, event loops, context managers
 and other goodies.
 
 
-[1]: http://www.stackless/com "Stackless Python"
+[1]: http://www.stackless.com "Stackless Python"
