@@ -82,8 +82,7 @@ class ExecutorMixin(unittest.TestCase):
     def tearDown(self):
         self.executor.shutdown(wait=True)
         dt = time.time() - self.t1
-        if test.test_support.verbose:
-            print("%.2fs" % dt, end=' ')
+        # print("%.2fs" % dt, end=' ')
         self.assertLess(dt, 60, "synchronization issue: test lasted too long")
 
     def _prime_executor(self):
