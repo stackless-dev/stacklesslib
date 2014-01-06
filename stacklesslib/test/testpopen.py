@@ -16,8 +16,8 @@ def popen4(cmd, mode='t', bufsize=-1):
         try:
             for i in range(10):
                 l = ("%d"%i)*10 + "\n"
-                print "sending", l
-                print pstdout.balance, pstdout.closed, pstdout.closing
+                #print "sending", l
+                #print pstdout.balance, pstdout.closed, pstdout.closing
                 pstdout.send(l)
         except Exception, e:
             c, e = sys.exc_info()[:2]
@@ -25,7 +25,7 @@ def popen4(cmd, mode='t', bufsize=-1):
             traceback.print_exc()
             pstdout.send_exception(c, e)
         finally:
-            print "done"
+            #print "done"
             pstdout.close()
     t = threading.Thread(target=func)
     t.start()
@@ -49,7 +49,7 @@ done = False
 def foo():
     try:
         output = read_process("foo")
-        print "got output", repr(output)
+        # print "got output", repr(output)
     finally:
         global done
         done = True
