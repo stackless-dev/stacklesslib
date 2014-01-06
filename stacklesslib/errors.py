@@ -6,3 +6,7 @@ class TimeoutError(RuntimeError):
 
 class CancelledError(RuntimeError):
     """The operation was cancelled"""
+
+class AsyncCallFailed(RuntimeError):
+    """Exception raised when an on_failure callback is made"""
+
