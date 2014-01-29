@@ -198,7 +198,7 @@ def tasklet_call(function, args=(), kwargs={},
                 send_throw(chan, *sys.exc_info())
             else:
                 chan.send(result)
-        except StopIteration:
+        except (ValueError, StopIteration): # old versions raised StopIteration
             pass # The originator is no longer listening
 
     # submit the helper to the dispatcher

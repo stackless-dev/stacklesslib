@@ -14,6 +14,7 @@ from stacklesslib import futures
 from stacklesslib.futures import Future
 from stacklesslib.app import sleep
 from stacklesslib.locks import Barrier
+from stacklesslib.test import support
 #make time.sleep be the right one
 import time
 class Time(object):
@@ -387,7 +388,7 @@ class FutureTests(unittest.TestCase):
         self.assertTrue(was_cancelled[0])
 
     def test_done_callback_raises(self):
-        with test.test_support.captured_stderr() as stderr:
+        with support.captured_stderr() as stderr:
             raising_was_called = [False]
             fn_was_called = [False]
 

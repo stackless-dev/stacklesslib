@@ -5,6 +5,8 @@ from time import clock
 import sys
 import unittest
 import functools
+import contextlib
+import cStringIO
 
 import stackless
 import stacklesslib.errors
@@ -26,6 +28,16 @@ def timesafe(t=1.0):
                 self.fail("test case timed out")
         return testmethod
     return helper
+
+
+@contextlib.contextmanager
+def captured_stderr():
+    old = sys.stderr
+    sys.stderr = cStringIO.StringIO()
+    try:
+        yield sys.stderr
+    finally:
+        sys.stderr = old
 
 class StacklessTestSuite(unittest.TestSuite):
     def run(self, results):

@@ -3,7 +3,6 @@
 # The WeakMethod is ported from Python 3.  The WeakMethodProxy works similarly to
 # weakref.weakcallableproxy
 
-from __future__ import absolute_import # To get real weakref module
 import weakref
 
 try:

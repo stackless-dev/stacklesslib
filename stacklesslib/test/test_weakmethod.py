@@ -2,7 +2,7 @@
 
 import weakref
 import unittest
-import stacklesslib.weakref
+import stacklesslib.weakmethod as weakmethod
 
 class TestClass(object):
     def method(self, *args):
@@ -16,34 +16,34 @@ class TestWeakMethod(unittest.TestCase):
         self.c = TestClass()
 
     def test_create(self):
-        r = stacklesslib.weakref.WeakMethod(TestClass().method)
+        r = weakmethod.WeakMethod(TestClass().method)
 
     def test_weak(self):
-        r = stacklesslib.weakref.WeakMethod(TestClass().method)
+        r = weakmethod.WeakMethod(TestClass().method)
         self.assertEqual(r(), None)
 
     def test_strong(self):
-        r = stacklesslib.weakref.WeakMethod(self.c.method)
+        r = weakmethod.WeakMethod(self.c.method)
         self.assertEqual(r(), self.c.method)
         del self.c
         self.assertEqual(r(), None)
 
     def test_fail(self):
-        self.assertRaises(TypeError, stacklesslib.weakref.WeakMethod, func)
+        self.assertRaises(TypeError, weakmethod.WeakMethod, func)
 
     def test_eq(self):
         m = self.c.method
-        r = stacklesslib.weakref.WeakMethod(m)
+        r = weakmethod.WeakMethod(m)
         self.assertEqual(m, r())
 
     def test_repr(self):
         m = self.c.method
-        r = stacklesslib.weakref.WeakMethod(m)
+        r = weakmethod.WeakMethod(m)
         self.assertEqual(repr(m), repr(r()))
 
     def test_ref(self):
         m = self.c.method
-        r = stacklesslib.weakref.WeakMethod(m)
+        r = weakmethod.WeakMethod(m)
         weakref.ref(r)
 
 
@@ -85,14 +85,14 @@ class TestWeakMethodProxy(unittest.TestCase):
         self.c = TestClass()
 
     def test_create(self):
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method)
+        r = weakmethod.WeakMethodProxy(self.c.method)
 
     def test_weak(self):
-        r = stacklesslib.weakref.WeakMethodProxy(TestClass().method)
+        r = weakmethod.WeakMethodProxy(TestClass().method)
         self.assertRaises(weakref.ReferenceError, r)
 
     def test_strong(self):
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method)
+        r = weakmethod.WeakMethodProxy(self.c.method)
         result = r(1,2,3)
         self.assertEqual(result, (1, 2, 3))
         del self.c
@@ -102,7 +102,7 @@ class TestWeakMethodProxy(unittest.TestCase):
         foo = [None]
         def cb(arg):
             foo[0] = arg
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method, callback=cb)
+        r = weakmethod.WeakMethodProxy(self.c.method, callback=cb)
         result = r(1,2,3)
         self.assertEqual(result, (1, 2, 3))
         self.assertEqual(foo[0], None)
@@ -113,7 +113,7 @@ class TestWeakMethodProxy(unittest.TestCase):
     def test_fallback(self):
         def fb(*arg):
             return arg+arg
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method, fallback=fb)
+        r = weakmethod.WeakMethodProxy(self.c.method, fallback=fb)
         result = r(1,2,3)
         self.assertEqual(result, (1, 2, 3))
         del self.c
@@ -121,13 +121,13 @@ class TestWeakMethodProxy(unittest.TestCase):
         self.assertEqual(result, (1, 2, 3)*2)
 
     def test_hash(self):
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method)
+        r = weakmethod.WeakMethodProxy(self.c.method)
         self.assertRaises(TypeError, hash, r)
         del self.c
         self.assertRaises(TypeError, hash, r)
 
     def test_repr(self):
-        r = stacklesslib.weakref.WeakMethodProxy(self.c.method)
+        r = weakmethod.WeakMethodProxy(self.c.method)
         inner = repr(self.c.method)
         outer = repr(r)
         self.assertTrue(inner in outer)
@@ -139,8 +139,8 @@ class TestWeakMethodProxy(unittest.TestCase):
     def test_cmp(self):
         def cb1(arg): pass
         def cb2(arg): pass
-        p1 = stacklesslib.weakref.WeakMethodProxy(self.c.method)
-        p2 = stacklesslib.weakref.WeakMethodProxy(self.c.method)
+        p1 = weakmethod.WeakMethodProxy(self.c.method)
+        p2 = weakmethod.WeakMethodProxy(self.c.method)
         self.assertNotEqual(id(p1), id(p2))
         self.assertEqual(p1, p2)
         del self.c
@@ -151,58 +151,58 @@ class TestRef(unittest.TestCase):
     def test_object(self):
         o = TestClass()
         p1 = weakref.ref(o)
-        p2 = stacklesslib.weakref.ref(o)
+        p2 = weakmethod.ref(o)
         self.assertEqual(p1, p2)
 
     def test_object_cb(self):
         def cb1(arg): pass
         o = TestClass()
         p1 = weakref.ref(o, cb1)
-        p2 = stacklesslib.weakref.ref(o, cb1)
+        p2 = weakmethod.ref(o, cb1)
         self.assertEqual(p1, p2)
 
     def test_func(self):
         def o(): pass
         p1 = weakref.ref(o)
-        p2 = stacklesslib.weakref.ref(o)
+        p2 = weakmethod.ref(o)
         self.assertEqual(p1, p2)
 
     def test_func(self):
         c = TestClass()
         o = c.method
         p1 = weakref.ref(o)
-        p2 = stacklesslib.weakref.ref(o)
+        p2 = weakmethod.ref(o)
         self.assertNotEqual(p1, p2)
-        p3 = stacklesslib.weakref.WeakMethod(o)
+        p3 = weakmethod.WeakMethod(o)
         self.assertNotEqual(p1, p3)
 
 class TestProxy(unittest.TestCase):
     def test_object(self):
         o = TestClass()
         p1 = weakref.proxy(o)
-        p2 = stacklesslib.weakref.proxy(o)
+        p2 = weakmethod.proxy(o)
         self.assertEqual(p1, p2)
 
     def test_object_cb(self):
         def cb1(arg): pass
         o = TestClass()
         p1 = weakref.proxy(o, cb1)
-        p2 = stacklesslib.weakref.proxy(o, cb1)
+        p2 = weakmethod.proxy(o, cb1)
         self.assertEqual(p1, p2)
 
     def test_func(self):
         def o(): pass
         p1 = weakref.proxy(o)
-        p2 = stacklesslib.weakref.proxy(o)
+        p2 = weakmethod.proxy(o)
         self.assertEqual(p1, p2)
 
     def test_func(self):
         c = TestClass()
         o = c.method
         p1 = weakref.proxy(o)
-        p2 = stacklesslib.weakref.proxy(o)
+        p2 = weakmethod.proxy(o)
         self.assertNotEqual(p1, p2)
-        p3 = stacklesslib.weakref.WeakMethodProxy(o)
+        p3 = weakmethod.WeakMethodProxy(o)
         self.assertNotEqual(p1, p3)
 
 

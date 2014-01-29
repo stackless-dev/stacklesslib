@@ -84,7 +84,7 @@ class SyncToAsync(object):
         """
         try:
             self.channel.send(value)
-        except StopIteration:
+        except (ValueError, StopIteration): # old versions raised StopIteration
             return False
         else:
             return True
@@ -96,7 +96,7 @@ class SyncToAsync(object):
         """
         try:
             self.channel.send_throw(exc, val, tb)
-        except StopIteration:
+        except (ValueError, StopIteration):
             return False
         else:
             return True
