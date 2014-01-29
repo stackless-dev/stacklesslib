@@ -204,10 +204,3 @@ class TestProxy(unittest.TestCase):
         self.assertNotEqual(p1, p2)
         p3 = weakmethod.WeakMethodProxy(o)
         self.assertNotEqual(p1, p3)
-
-
-
-
-
-
-

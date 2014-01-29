@@ -1,4 +1,4 @@
-# weakref
+# weakmethod
 # contains weak method and weak method proxy helper classes to manage callbacks
 # The WeakMethod is ported from Python 3.  The WeakMethodProxy works similarly to
 # weakref.weakcallableproxy
