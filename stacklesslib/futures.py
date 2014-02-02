@@ -26,7 +26,8 @@ class ExecutorBase(object):
         if kwds:
             raise TypeError
         t = util.Timeouts(timeout)
-        futures = [self.submit_future(Future(), (fn, args)) for args in zip(*iterables)]
+        kw = {}
+        futures = [self.submit_future(Future(), (fn, args, kw)) for args in zip(*iterables)]
         # map cannot be a generator, because then it is not called until
         # the iterator is accessed.  Instead, let it return an iterator
         # itself.
@@ -39,7 +40,8 @@ class ExecutorBase(object):
         return generator()
 
     @staticmethod
-    def execute_future(future, fn, args, kwargs={}):
+    def execute_future(future, job):
+        fn, args, kwargs = job
         """Execute the job and future on the current tasklet"""
         future.execute(fn, args, kwargs)
 
@@ -58,7 +60,7 @@ class ThreadPoolExecutorBase(ExecutorBase):
 
     def submit_future(self, future, job):
         def job_function():
-            self.execute_future(future, *job)
+            self.execute_future(future, job)
         self.pool.submit(job_function)
         return future
 
@@ -73,20 +75,23 @@ class NullExecutor(ExecutorBase):
 class DirectExecutor(ExecutorBase):
     """This executor just runs the job straight away."""
     def submit_future(self, future, job):
-        self.execute_future(future, *job)
+        self.execute_future(future, job)
         return future
 
 class SimpleTaskletExecutor(ExecutorBase):
     """Runs the job as a new tasklet on this thread"""
     def submit_future(self, future, job):
-        stackless.tasklet(self.execute_future)(future, *job)
+        self.start_tasklet(self.execute_future, (future, job))
         return future
+
+    def start_tasklet(self, func, args):
+        """Start execution of a tasklet and return it. Can be overridden."""
+        return stackless.tasklet(func)(*args)
 
 class ImmediateTaskletExecutor(SimpleTaskletExecutor):
     """Runs the job as a new tasklet and switches to it directly"""
-
     def submit_future(self, future, job):
-        stackless.tasklet(self.execute_future)(future, *job).run()
+        self.start_tasklet(self.execute_future, (future, job)).run()
         return future
 
 # create a module static instances of the above
@@ -138,9 +143,9 @@ class BoundedExecutorMixIn(object):
                 self.jobs.append((future, job))
             return future
 
-    def execute_future(self, future, fn, args, kwargs={}):
+    def execute_future(self, future, job):
         try:
-            super(BoundedExecutorMixIn, self).execute_future(future, fn, args, kwargs)
+            super(BoundedExecutorMixIn, self).execute_future(future, job)
         finally:
             self.n_workers -= 1
             self.pump()
@@ -156,7 +161,7 @@ class BoundedExecutorMixIn(object):
 class ThreadPoolExecutor(WaitingExecutorMixIn, ThreadPoolExecutorBase):
     def __init__(self, max_workers=None):
         WaitingExecutorMixIn.__init__(self)
-        pool = threadpool.SimpleThreadPool(n_threads = max_workers)
+        pool = threadpool.SimpleThreadPool(n_threads=max_workers)
         ThreadPoolExecutorBase.__init__(self, pool)
 
 # and a generate tasklet executor

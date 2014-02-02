@@ -105,7 +105,7 @@ class SimpleThreadPool(DummyThreadPool):
                 self.cond.notify()
 
 def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
-                   timeout=None, on_orphaned=None):
+                   timeout=None, on_abandoned=None):
     """Run the given function on a different thread and return the result
        This function blocks on a channel until the result is available.
        Ideal for performing OS type tasks, such as saving files or compressing
@@ -120,4 +120,4 @@ def call_on_thread(function, args=(), kwargs={}, stack_size=None, pool=None,
             main.mainloop.interrupt_wait()
     def dispatcher(function):
         pool.submit(function)
-    return tasklet_call(wrapped, dispatcher=dispatcher, timeout=timeout, on_orphaned=on_orphaned)
+    return tasklet_call(wrapped, dispatcher=dispatcher, timeout=timeout, on_abandoned=on_abandoned)

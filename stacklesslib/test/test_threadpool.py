@@ -37,16 +37,16 @@ class TestCallOnThread(unittest.TestCase):
             time.sleep(0.01)
         self.assertRaises(stacklesslib.errors.TimeoutError, stacklesslib.threadpool.call_on_thread, func, timeout=0.001)
 
-    def test_on_orphaned_not_called(self):
+    def test_on_abandoned_not_called(self):
         def func():
             pass
         c = []
         def orp():
             c.append(True)
-        stacklesslib.threadpool.call_on_thread(func, on_orphaned=orp)
+        stacklesslib.threadpool.call_on_thread(func, on_abandoned=orp)
         self.assertEqual(c, [])
 
-    def test_on_orphaned_called(self):
+    def test_on_abandoned_called(self):
         c = []
         def func():
             c.append(1)
@@ -54,7 +54,7 @@ class TestCallOnThread(unittest.TestCase):
         def orp():
             c.append(2)
         def task():
-            stacklesslib.threadpool.call_on_thread(func, on_orphaned=orp)
+            stacklesslib.threadpool.call_on_thread(func, on_abandoned=orp)
         t = stackless.tasklet(task)()
         # wait until call is in progress
         while not c:
@@ -76,9 +76,9 @@ class TestCallOnThread(unittest.TestCase):
 class TestSimpleThreadPool(unittest.TestCase):
     def test_max_threads(self):
         p = stacklesslib.threadpool.SimpleThreadPool(3)
-        c = [0]
-        n = [0]
-        m = [0]
+        c = [0] # jobs done
+        n = [0] # active counter
+        m = [0] # max counter
         l = threading.Lock()
         def func():
             with l:
