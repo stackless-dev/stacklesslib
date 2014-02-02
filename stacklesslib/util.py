@@ -173,7 +173,7 @@ def tasklet_run(function, args=(), kwargs={}):
     return t
 
 def tasklet_call(function, args=(), kwargs={},
-        dispatcher=tasklet_run, timeout=None, onOrphaned=None):
+        dispatcher=tasklet_run, timeout=None, on_orphaned=None):
     """Run the given function on a different tasklet and return the result.
        'dispatcher' must be a callable which, when called with with
        (func, args, kwargs) causes asynchronous execution of the function to commence.
@@ -209,8 +209,8 @@ def tasklet_call(function, args=(), kwargs={},
             return channel_wait(chan, timeout)
         finally:
             chan.close()
-            if onOrphaned and not done[0]:
-                onOrphaned()
+            if on_orphaned and not done[0]:
+                on_orphaned()
 
 
 # A timeout context manager
