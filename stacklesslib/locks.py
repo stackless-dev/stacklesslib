@@ -18,6 +18,7 @@ from .base import time as elapsed_time
 from .base import atomic
 from .util import channel_wait
 from .errors import TimeoutError
+from .wait import WaitSite
 from . import app
 
 
@@ -470,14 +471,16 @@ class NLCondition(LockMixin):
         pass
 
 
-class Event(object):
+class Event(WaitSite):
     def __init__(self):
+        super(Event, self).__init__()
         self._is_set = False
         self.chan = get_channel()
 
     def is_set(self):
         return self._is_set;
     isSet = is_set
+    waitsite_signalled = is_set
 
     def clear(self):
         self._is_set = False
@@ -495,6 +498,7 @@ class Event(object):
             for i in range(-self.chan.balance):
                 if self.chan.balance:
                     self.chan.send(None)
+            self.waitsite_signal()
 
 
 class ValueEvent(stackless.channel):
