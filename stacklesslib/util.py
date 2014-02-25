@@ -301,7 +301,6 @@ def timeout_function(delay):
 
 class Timeouts(object):
     def __init__(self, delay, blocked=False, exc=None):
-        self.delay = delay
         self.blocked = blocked
         self.exc = exc
         if delay is not None and delay >= 0:
@@ -309,17 +308,18 @@ class Timeouts(object):
         else:
             self.deadline = None
 
-    def timeout(self):
+    def delay(self):
         if self.deadline is not None:
-            delay = self.deadline - time()
-            if delay < 0 and not self.blocked:
-                # raise the timeout error here
-                if self.exc:
-                    raise self.exc
-                else:
-                    raise TimeoutError
-        else:
-            delay = None
+            return self.deadline - time()
+
+    def timeout(self):
+        delay = self.delay()
+        if delay is not None and delay <= 0.0 and not self.blocked:
+            # raise the timeout error here
+            if self.exc:
+                raise self.exc
+            else:
+                raise TimeoutError
         return _timeout(delay, self.blocked, self.exc)
 
 
