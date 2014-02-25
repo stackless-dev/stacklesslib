@@ -35,6 +35,7 @@ class SemaphoreTests(lock_tests.SemaphoreTests):
 class BoundedSemaphoreTests(lock_tests.BoundedSemaphoreTests):
     semtype = staticmethod(locks.BoundedSemaphore)
 
+from .support import load_tests
 
 if __name__ == "__main__":
     app.install_stackless()
