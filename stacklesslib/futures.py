@@ -4,11 +4,13 @@ import sys
 import traceback
 import collections
 import stackless
+import itertools
 from .errors import TimeoutError, CancelledError
 from . import util, threadpool
 from .util import timeout as _timeout
 from .util import atomic
 from weakref import WeakSet
+from . import wait as _waitmodule
 
 class ExecutorBase(object):
     """Base class for TaskFactories"""
@@ -340,75 +342,42 @@ ALL_COMPLETED = 2
 
 def wait(fs, timeout=None, return_when=ALL_COMPLETED):
     done = set()
-    not_done = set()
-    e = Event()
-    with atomic():
-        # depending on mode, set up callback function
+    fs1, fs2 = itertools.tee(fs, 2)
+    # search for all already complete futures.  This is to satisfy
+    # unittests, because we must return all _already complete_ futures
+    # even if we want to exit with the first completed one.
+    finished = False
+    for f in fs1:
+        if f.done():
+            done.add(f)
+            if return_when == FIRST_COMPLETED:
+                finished = True
+            elif return_when == FIRST_EXCEPTION:
+                # the order of these tests matters
+                if not f.cancelled() and f.exception():
+                    finished = True
+
+    not_done = set(fs2) - done
+    if finished:
+        return done, not_done
+
+    # second round, the incomplete ones
+    for f in as_completed(not_done, timeout):
+        done.add(f)
         if return_when == FIRST_COMPLETED:
-            def when_done(f):
-                not_done.remove(f)
-                done.add(f)
-                e.set()
+            break
         elif return_when == FIRST_EXCEPTION:
-            def when_done(f):
-                not_done.remove(f)
-                done.add(f)
-                # "canceled" does not constitute an exception in this sense
-                if not not_done or (not f.cancelled() and f.exception()):
-                    e.set()
-        elif return_when == ALL_COMPLETED:
-            def when_done(f):
-                not_done.remove(f)
-                done.add(f)
-                if not not_done:
-                    e.set()
-        else:
-            raise ValueError(return_when)
+            if not f.cancelled() and f.exception():
+                break
 
-        # Classify futures, and look for exceptions
-        do_wait = True
-        for f in fs:
-            if f.done():
-                done.add(f)
-                if do_wait and (not f.cancelled() and f.exception()):
-                    do_wait = False # for FIRST_EXCEPTION
-            else:
-                f.add_done_callback(when_done)
-                not_done.add(f)
+    not_done -= done
+    return done, not_done
 
-        if return_when == FIRST_COMPLETED:
-            do_wait = not done
-        elif return_when == FIRST_EXCEPTION:
-            if not not_done:
-                do_wait = False
-        else:
-            do_wait = not_done
-
-        if do_wait:
-            try:
-                e.wait(timeout)
-            except TimeoutError:
-                pass
-    #duplicate the sets, so that future events won't modify them.
-    return set(done), set(not_done)
 _wait = wait #to resolve naming conflicts
 
-def as_completed(fs, timeout=None):
-    t = util.Timeouts(timeout)
-    incomplete = 0
-    channel = util.qchannel() #so that sender doesn't block if receiver goes away
-    with atomic():
-        for f in fs:
-            if f.done():
-                yield f
-            else:
-                f.add_done_callback(channel.send)
-                incomplete += 1
-    for i in xrange(incomplete):
-        with t.timeout():
-            f = channel.receive()
-        # Never yield out of the timeout context
-        yield f
+as_completed = _waitmodule.iwait
+def _as_completed(fs, timeout=None):
+    return _waitmodule.iwait(fs, timeout=timeout, raise_timeout=True)
 
 
 # Convenience functions to gather all or any result from a set of futures
