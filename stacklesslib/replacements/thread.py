@@ -11,25 +11,27 @@ import traceback
 import stackless
 
 import stacklesslib.locks
-   
+
 
 class error(RuntimeError): pass
 
 
-_thread_count = 0
 def _count():
-    return _thread_count
+    return Thread.thread_count
 
-    
+
 class Thread(stackless.tasklet):
     # Some tests need this
     __slots__ = ["__dict__"]
-    def __new__(cls):
-        return stackless.tasklet.__new__(cls, cls._thread_main)
-    
-    @staticmethod
-    def _thread_main(func, args, kwargs):
-        global _thread_count
+    thread_count = 0
+
+    def __init__(self, function, args, kwargs):
+        super(Thread, self).__init__(self.thread_main)
+        self(function, args, kwargs)
+        self.__class__.thread_count += 1
+
+    @classmethod
+    def thread_main(cls, func, args, kwargs):
         try:
             try:
                 func(*args, **kwargs)
@@ -39,46 +41,43 @@ class Thread(stackless.tasklet):
         except Exception:
             traceback.print_exc()
         finally:
-            _thread_count -= 1    
+            cls.thread_count -= 1
 
 
 def start_new_thread(function, args, kwargs={}):
-    global _thread_count
-    t = Thread()
-    t(function, args, kwargs)
-    _thread_count += 1    
+    t = Thread(function, args, kwargs)
     return id(t)
 
-    
+
 def interrupt_main():
     # Don't know what to do here, just ignore it
     pass
 
-    
+
 def exit():
     stackless.getcurrent().kill()
 
-    
+
 def get_ident():
     return id(stackless.getcurrent())
 
 
 # Provide this as a no-op.
-_stack_size = 0    
+_stack_size = 0
 def stack_size(size=None):
     global _stack_size
     old = _stack_size
     if size is not None:
         _stack_size = size
     return old
-    
-    
+
+
 def allocate_lock(self=None):
     # Need the self because this function is sometimes placed in classes
     # and then invoked as a method, by the test suite.
     return LockType()
 
-    
+
 class LockType(stacklesslib.locks.Lock):
     def locked(self):
         return self.owning != None

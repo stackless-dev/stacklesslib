@@ -16,7 +16,6 @@ import stacklesslib.replacements.thread as thread
 _start_new_thread = thread.start_new_thread
 _allocate_lock = thread.allocate_lock
 _get_ident = thread.get_ident
-_thread_count = thread._thread_count
 ThreadError = thread.error
 stack_size = thread.stack_size
 del thread
