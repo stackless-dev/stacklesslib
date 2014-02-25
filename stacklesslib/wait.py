@@ -114,7 +114,7 @@ class ValueTasklet(WaitableTasklet):
             return self.__value__
 
 
-def iwait(objects, timeout=None):
+def iwait(objects, timeout=None, raise_timeout=False):
     """
     A generator that returns objects as they become ready.  The total waiting
     time will not exceed "timeout" if provided.
@@ -127,13 +127,23 @@ def iwait(objects, timeout=None):
             count += 1
 
     if timeout is not None:
-        timeouts = stacklesslib.util.Timeouts(timeout)
-        try:
-            for i in xrange(count):
-                with timeouts.timeout():
+        # handle 0 timeouts by not blocking at all
+        if timeout == 0:
+            with atomic():
+                while channel.balance > 0:
+                    count -= 1
                     yield channel.receive()
-        except TimeoutError:
-            pass
+                if count and raise_timeout:
+                    raise TimeoutError()
+        else:
+            timeouts = stacklesslib.util.Timeouts(timeout)
+            try:
+                for i in xrange(count):
+                    with timeouts.timeout():
+                        yield channel.receive()
+            except TimeoutError:
+                if raise_timeout:
+                    raise
     else:
         for i in xrange(count):
             yield channel.receive()

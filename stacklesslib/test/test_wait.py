@@ -186,6 +186,27 @@ class TestIWait(WaitMixIn, unittest.TestCase):
         r = list(self.wait(w, timeout = 0.0035))
         self.assertLess(len(r), len(w))
 
+    def test_timeout_raise(self):
+        w = get_waitables([0.001, 0.002, 0, 0.003, 0, 0.004, 0.005])
+        i = stacklesslib.wait.iwait(w, timeout = 0.0035, raise_timeout=True)
+        r = []
+        def func():
+            for v in i:
+                r.append(v)
+        self.assertRaises(stacklesslib.errors.TimeoutError, func)
+        self.assertTrue(r)
+        self.assertLess(len(r), len(w))
+
+    def test_timeout_raise_zero(self):
+        w = get_waitables([0, 0, 0.0, 0.001])
+        i = stacklesslib.wait.iwait(w, timeout = 0, raise_timeout=True)
+        r = []
+        def func():
+            for v in i:
+                r.append(v)
+        self.assertRaises(stacklesslib.errors.TimeoutError, func)
+        self.assertEqual(len(r), 3)
+
 
 class WaitTaskletTest(WaitTest):
     """Class that performs the same tests using a waitable tasklet"""
