@@ -88,7 +88,7 @@ class FileChannel(stackless.channel, FileReadMixin):
             r = "".join(stuff)
 
         where = r.find("\n")
-        if r >= 0:
+        if where >= 0:
             result = r[:where + 1]
             self.buffer[0:0] = [r[where + 1:]]
         else:

@@ -4,6 +4,13 @@
 # weakref.weakcallableproxy
 
 import weakref
+import sys
+
+py3 = sys.version_info >= (3,0)
+try:
+    from weakref import ReferenceError
+except:
+    pass # a python 3 builtin
 
 try:
     from weakref import WeakMethod
@@ -40,12 +47,22 @@ except ImportError:
             self_wr = weakref.ref(self)
             return self
 
-        def __call__(self):
-            obj = super(WeakMethod, self).__call__()
-            func = self._func_ref()
-            if obj is None or func is None:
-                return None
-            return self._meth_type(func, obj, type(obj))
+        if not py3:
+            def __call__(self):
+                obj = super(WeakMethod, self).__call__()
+                func = self._func_ref()
+                if obj is None or func is None:
+                    return None
+                return self._meth_type(func, obj, type(obj))
+        else:
+            def __call__(self):
+                obj = super(WeakMethod, self).__call__()
+                func = self._func_ref()
+                if obj is None or func is None:
+                    return None
+                return self._meth_type(func, obj)
+         
+        #, type(obj))
 
         def __eq__(self, other):
             if isinstance(other, WeakMethod):
@@ -93,7 +110,7 @@ class WeakMethodProxy(object):
             return method(*args, **kwds)
         if self.fallback:
             return self.fallback(*args, **kwds)
-        raise weakref.ReferenceError("weakly-referenced object no longer exists")
+        raise ReferenceError("weakly-referenced object no longer exists")
     __hash__ = None
 
     def __repr__(self):
@@ -103,7 +120,7 @@ class WeakMethodProxy(object):
         if isinstance(other, WeakMethodProxy):
             a, b = self.weak_method(), other.weak_method()
             if a is None or b is None:
-                raise weakref.ReferenceError("weakly-referenced object no longer exists")
+                raise ReferenceError("weakly-referenced object no longer exists")
             return a == b
 
 def ref(obj, callback=None):

@@ -256,13 +256,12 @@ class TestAsyncToSync(unittest.TestCase):
         try:
             r = c2(2, 3, 4)
         except stacklesslib.errors.AsyncCallFailed as e:
-            pass
+            i = e.args[1]
+            self.assertTrue(isinstance(i, ZeroDivisionError));
+            self.assertEqual(i.args[0],((2, 3, 4), {"kw" : None}))
         else:
             self.fail("exception not raised")
-        i = e[1]
-        self.assertTrue(isinstance(i, ZeroDivisionError));
-        self.assertEqual(i[0],((2, 3, 4), {"kw" : None}))
-
+        
     @timesafe()
     def test_call_dispatcher(self):
         a = SyncAPI()

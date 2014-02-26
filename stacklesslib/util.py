@@ -273,6 +273,9 @@ def timeout(delay, blocked=False, exc=None):
                 # construct exception
                 if exc is None:
                     exc = TimeoutError("timed out after %ss"%(delay,))
+                else:
+                    if not isinstance(exc, BaseException):
+                        exc = exc() #instantiate it
                 raise exc, None, sys.exc_info()[2]
             raise # it is someone else's error
         finally:

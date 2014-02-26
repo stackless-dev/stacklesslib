@@ -124,7 +124,7 @@ class EventQueue(object):
     @property
     def is_due(self):
         """Returns true if the queue needs pumping now."""
-        return self.due_delay <= 0.0
+        return self.due_delay() <= 0.0
 
     def due_delay(self):
         """delay in seconds until the next event, or None"""

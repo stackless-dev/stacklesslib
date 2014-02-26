@@ -3,6 +3,10 @@
 import weakref
 import unittest
 import stacklesslib.weakmethod as weakmethod
+try:
+    from weakref import ReferenceError
+except:
+    pass # a python 3 built int
 
 class TestClass(object):
     def method(self, *args):
@@ -77,7 +81,7 @@ class TestProxy(unittest.TestCase):
         self.assertEqual(p1, p2)
         del self.dude
         def cmp(a, b): return a == b
-        self.assertRaises(weakref.ReferenceError, cmp, p1, p2)
+        self.assertRaises(ReferenceError, cmp, p1, p2)
 
 
 class TestWeakMethodProxy(unittest.TestCase):
@@ -89,14 +93,14 @@ class TestWeakMethodProxy(unittest.TestCase):
 
     def test_weak(self):
         r = weakmethod.WeakMethodProxy(TestClass().method)
-        self.assertRaises(weakref.ReferenceError, r)
+        self.assertRaises(ReferenceError, r)
 
     def test_strong(self):
         r = weakmethod.WeakMethodProxy(self.c.method)
         result = r(1,2,3)
         self.assertEqual(result, (1, 2, 3))
         del self.c
-        self.assertRaises(weakref.ReferenceError, r)
+        self.assertRaises(ReferenceError, r)
 
     def test_strong_callback(self):
         foo = [None]
@@ -107,7 +111,7 @@ class TestWeakMethodProxy(unittest.TestCase):
         self.assertEqual(result, (1, 2, 3))
         self.assertEqual(foo[0], None)
         del self.c
-        self.assertRaises(weakref.ReferenceError, r)
+        self.assertRaises(ReferenceError, r)
         self.assertEqual(id(foo[0]), id(r))
 
     def test_fallback(self):
@@ -145,7 +149,7 @@ class TestWeakMethodProxy(unittest.TestCase):
         self.assertEqual(p1, p2)
         del self.c
         def cmp(a, b): return a == b
-        self.assertRaises(weakref.ReferenceError, cmp, p1, p2)
+        self.assertRaises(ReferenceError, cmp, p1, p2)
 
 class TestRef(unittest.TestCase):
     def test_object(self):

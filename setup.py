@@ -17,5 +17,7 @@ setup(
     license = "PSF",
     keywords = "stackless",
     url = "https://bitbucket.org/stackless-dev/stacklesslib",
-    test_suite = "stacklesslib.test.run.load_tests"
+    test_suite = "stacklesslib.test.run.load_tests",
+    use_2to3 = True,
+    use_2to3_exclude_fixers = ['lib2to3.fixes.fix_throw'],
 )

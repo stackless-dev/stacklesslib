@@ -33,7 +33,7 @@ def create_future(state=PENDING, exception=None, result=None):
     f.state = state
     if state == FINISHED:
         if exception:
-            f._result = (False, (exception, None, None))
+            f._result = (False, (type(exception), exception, None))
         else:
             f._result = (True, result)
     elif state == CANCELLED:
@@ -321,7 +321,7 @@ class ExecutorTest(object):
         self.executor.map(str, [2] * (self.worker_count + 1))
         self.executor.shutdown()
 
-    @test.test_support.cpython_only
+    #@test.test_support.cpython_only
     def test_no_stale_references(self):
         # Issue #16284: check that the executors don't unnecessarily hang onto
         # references.

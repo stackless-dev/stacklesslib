@@ -1,4 +1,6 @@
 #test
+# TODO: Turn into TestClass
+# TODO: Write subprocess replacement for python 3
 
 import os
 import re
@@ -7,7 +9,7 @@ import threading
 from ..replacements.popen import FileChannel
 
 
-os_popen4 = os.popen4
+os_popen4 = getattr(os, "popen4", None)
 def popen4(cmd, mode='t', bufsize=-1):
     #no stdin support yet
     pstdin, pstdout = FileChannel(), FileChannel()
@@ -54,8 +56,8 @@ def foo():
         global done
         done = True
 
-
-import stackless
-stackless.tasklet(foo)()
-while not done:
-    stackless.run()
+if __name__ == "__main__":
+    import stackless
+    stackless.tasklet(foo)()
+    while not done:
+        stackless.run()

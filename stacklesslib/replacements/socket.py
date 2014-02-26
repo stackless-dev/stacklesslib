@@ -111,8 +111,9 @@ else:
     # use other methods.
     getaddrinfo = stdsocket.getaddrinfo
 
-# urllib2 apparently uses this directly.  We need to cater for that.
-_fileobject = stdsocket._fileobject
+# urllib2 apparently uses this directly.  We need to cater to that.
+if hasattr(stdsocket, "_fileobject"):
+    _fileobject = stdsocket._fileobject
 
 # Someone needs to invoke asyncore.poll() regularly to keep the socket
 # data moving.  The "ManageSockets" function here is a simple example
@@ -181,7 +182,7 @@ def socket(*args, **kwargs):
         raise RuntimeError("Use 'stacklesssocket.install' instead of replacing the 'socket' module")
 
 _realsocket_old = stdsocket._realsocket
-_socketobject_old = stdsocket._socketobject
+_socketobject_old = stdsocket.socket
 
 class _socketobject_new(_socketobject_old):
     def __init__(self, family=AF_INET, type=SOCK_STREAM, proto=0, _sock=None):
