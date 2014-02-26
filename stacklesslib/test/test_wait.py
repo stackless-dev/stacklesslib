@@ -139,7 +139,7 @@ class WaitMixIn(object):
 
     def test_timeout(self):
         w = get_waitables([0.001, 0.002, 0, 0.0001, 0, 0.1])
-        r = self.wait(w, timeout=0.003)
+        r = self.wait(w, timeout=0.004)
         for o in r:
             self.assertTrue(o.done)
         self.assertEqual(len(r), 5)

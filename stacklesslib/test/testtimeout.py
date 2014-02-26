@@ -10,11 +10,14 @@ from stacklesslib import main, app, util
 from stacklesslib.errors import TimeoutError
 
 #compute fluff
-t0 = time.time()
-t1 = time.time()
-while(t1 == t0):
+fluffs = []
+for i in range(100):
+    t0 = time.time()
     t1 = time.time()
-fluff = (t1-t0) * 2
+    while(t1 == t0):
+        t1 = time.time()
+    fluffs.append(t1-t0)
+fluff = max(fluffs) * 2
 # print "fluff", fluff
 # typcially 2ms
 
@@ -34,8 +37,8 @@ class TimeoutMixin(object):
             yield
         except TimeoutError:
             dt = time.time() - t0
-            self.assertLessEqual(delay - fluff, dt)
-            self.assertLessEqual(dt, delay + fluff)
+            self.assertLessEqual(delay - fluff, dt, "timedout %s early, fluff=%s"%(delay-dt, fluff))
+            self.assertLessEqual(dt, delay + fluff, "timedout %s late, fluff=%s"%(dt-delay, fluff))
             raise
 
 
