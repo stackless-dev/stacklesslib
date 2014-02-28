@@ -13,7 +13,7 @@ from __future__ import absolute_import
 import stackless
 import contextlib
 
-from .base import get_channel
+from .base import SignalChannel
 from .base import time as elapsed_time
 from .base import atomic
 from .util import channel_wait
@@ -91,7 +91,7 @@ class Semaphore(LockMixin):
             return True
         if not self._chan:
             # Lazy creation of the channel
-            self._chan = get_channel()
+            self._chan = SignalChannel()
         return False
 
     def release(self, count=1):
@@ -103,8 +103,7 @@ class Semaphore(LockMixin):
         if not self._chan:
             return
         for i in xrange(min(self._value, -self._chan.balance)):
-            if self._chan.balance:
-                self._chan.send(None)
+            self._chan.asignal()
 
     def _safe_pump(self):
         # Need a special function for this, since we want to call it from
@@ -436,7 +435,7 @@ class NLCondition(LockMixin):
     in stackless programs often are not pre-emptable.
     """
     def __init__(self):
-        self._chan = get_channel()
+        self._chan = SignalChannel()
 
     def wait(self, timeout=None):
         return lock_channel_wait(self._chan, timeout)
@@ -452,15 +451,10 @@ class NLCondition(LockMixin):
         with atomic():
             n = min(n, -self._chan.balance)
             for i in range(n):
-                if self._chan.balance:
-                    self._chan.send(None)
+                self._chan.asignal()
 
     def notify_all(self):
-        with atomic():
-            for i in xrange(-self._chan.balance):
-                #guard ourselves against premature waking of other tasklets
-                if self._chan.balance:
-                    self._chan.send(None)
+        self._chan.signal_all()
 
     notifyAll = notify_all
 
@@ -475,7 +469,7 @@ class Event(WaitSite):
     def __init__(self):
         super(Event, self).__init__()
         self._is_set = False
-        self.chan = get_channel()
+        self._chan = SignalChannel()
 
     def is_set(self):
         return self._is_set;
@@ -489,15 +483,13 @@ class Event(WaitSite):
         with atomic():
             if self._is_set:
                 return True
-            lock_channel_wait(self.chan, timeout)
+            lock_channel_wait(self._chan, timeout)
             return self._is_set
 
     def set(self):
         with atomic():
             self._is_set = True
-            for i in range(-self.chan.balance):
-                if self.chan.balance:
-                    self.chan.send(None)
+            self._chan.asignal_all()
             self.waitsite_signal()
 
 

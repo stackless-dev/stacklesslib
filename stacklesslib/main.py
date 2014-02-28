@@ -4,7 +4,7 @@ import sys
 import time
 import traceback
 
-from .base import atomic, get_channel
+from .base import atomic
 from .base import time as elapsed_time
 from .events import EventQueue
 

@@ -13,7 +13,7 @@ to the functions here, e.g. use "from stacklesslib.app import sleep"
 import time
 import threading
 from . import events
-from .base import get_channel, atomic
+from .base import atomic, SignalChannel
 
 
 class _SleepHandler(object):
@@ -21,21 +21,18 @@ class _SleepHandler(object):
     A class to support sleep functionality
     """
     def __init__(self):
-        self.chan = get_channel()
+        # a common channel for zero sleeps
+        self.chan = SignalChannel()
 
     def sleep(self, delay):
         if delay <= 0:
             c = self.chan
         else:
-            c = get_channel()
-        def wakeup():
-            with atomic():
-                if c.balance:
-                    c.send(None)
+            c = SignalChannel()
         if delay <= 0:
-            _event_queue.call_soon(wakeup)
+            _event_queue.call_soon(c.signal)
         else:
-            _event_queue.call_later(delay, wakeup)
+            _event_queue.call_later(delay, c.signal)
         c.receive()
 
 

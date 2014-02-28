@@ -73,28 +73,35 @@ def switch_trap():
     finally:
         stackless.switch_trap(-1)
 
+class SignalChannel(stackless.channel):
+    """
+    A subclass of channel that is used to implement more complex entities.
+    It has sender preference, so that a ``signal()`` call won't block.
+    """
+    def __init__(self):
+        self.preference = 1
 
-# Tools for adjusting the scheduling mode.
-# This is merely a mechanism to get channels with the correct
-# preference.
-SCHEDULING_ROUNDROBIN = 0
-SCHEDULING_IMMEDIATE = 1
-scheduling_mode = SCHEDULING_ROUNDROBIN
+    def signal(self):
+        """send(None) if someone is waiting"""
+        with atomic():
+            if self.balance < 0:
+                self.send(None)
 
-def set_scheduling_mode(mode):
-    global scheduling_mode
-    old = scheduling_mode
-    if mode is not None:
-        scheduling_mode = mode
-    return old
+    def signal_all(self):
+        """send(None) for every waiting tasklet"""
+        with atomic():
+            for i in xrange(-self.balance):
+                assert self.balance < 0
+                self.send(None)
 
-def set_channel_pref(c):
-    if scheduling_mode == SCHEDULING_ROUNDROBIN:
-        c.preference = 0
-    else:
-        c.preference = -1
+    def asignal(self):
+        """send(None) if someone is waiting. Should be called while in an atomic state."""
+        if self.balance < 0:
+            self.send(None)
 
-def get_channel():
-    c = stackless.channel()
-    set_channel_pref(c)
-    return c
+    def asignal_all(self):
+        """send(None) for every waiting tasklet. Should be called while in an atomic state."""
+        for i in xrange(-self.balance):
+            assert self.balance < 0
+            self.send(None)
+
