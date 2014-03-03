@@ -81,18 +81,18 @@ class SignalChannel(stackless.channel):
     def __init__(self):
         self.preference = 1
 
-    def signal(self):
-        """send(None) if someone is waiting"""
+    def signal(self, value=None):
+        """send(value) if someone is waiting"""
         with atomic():
             if self.balance < 0:
-                self.send(None)
+                self.send(value)
 
-    def signal_all(self):
-        """send(None) for every waiting tasklet"""
+    def signal_all(self, value=None):
+        """send(value) for every waiting tasklet"""
         with atomic():
             for i in xrange(-self.balance):
                 assert self.balance < 0
-                self.send(None)
+                self.send(value)
 
     def asignal(self):
         """send(None) if someone is waiting. Should be called while in an atomic state."""
