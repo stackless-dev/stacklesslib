@@ -103,8 +103,8 @@ class qchannel(stackless.channel):
     A qchannel is like a channel except that it contains a queue, so that the
     sender never blocks.  If there isn't a blocked tasklet waiting for the data,
     the data is queued up internally.
-    Note that while the sender never blocks, the channel priority is still -1
-    so that a receiver, if available, will run immediately.
+    Note that while the sender never blocks, the default channel preference is
+    still -1 so that a receiver, if available, will run immediately.
     """
     def __init__(self):
         self.data_queue = collections.deque()
