@@ -31,6 +31,5 @@ def run():
 if __name__ == "__main__":
     patch_all()
     install_stackless()
-    main.set_scheduling_mode(main.SCHEDULING_ROUNDROBIN)
     stackless.tasklet(run)()
     main.mainloop.run()

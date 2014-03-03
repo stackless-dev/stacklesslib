@@ -79,5 +79,12 @@ def allocate_lock(self=None):
 
 
 class LockType(stacklesslib.locks.Lock):
+    """
+    Check if the lock is held by someone
+    """
     def locked(self):
-        return self.owning != None
+        success = self.acquire(False)
+        if not success:
+            return True
+        self.release()
+        return False

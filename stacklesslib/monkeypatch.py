@@ -7,6 +7,7 @@ import contextlib
 from . import main
 from .replacements import thread, threading, popen
 from .app import sleep as app_sleep
+from .threadpool import call_on_thread
 
 # Use stacklessio if available
 try:
@@ -154,7 +155,7 @@ def patch_ssl():
     realwrap = _ssl.sslwrap
     def wrapbio(sock, *args, **kwds):
         bio = SocketBio(sock)
-        return util.call_on_thread(realwrap, (bio,)+args, kwds)
+        return call_on_thread(realwrap, (bio,)+args, kwds)
     _ssl.sslwrap = wrapbio
 
 @contextlib.contextmanager

@@ -79,7 +79,7 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
     def waitsite_signalled(self):
         return self.__done__
 
-    def join(timeout=None):
+    def join(self, timeout=None):
         wait([self], timeout)
 
 
@@ -103,7 +103,7 @@ class ValueTasklet(WaitableTasklet):
             f = helper
         super(ValueTasklet, self).bind(f, args, kwargs)
 
-    def get(block=True, timeout=None):
+    def get(self, block=True, timeout=None):
         with atomic():
             if not self.__done__ and block:
                 self.join(timeout)

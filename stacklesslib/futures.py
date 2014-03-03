@@ -200,7 +200,7 @@ class Future(object):
                 if self.attach(): # associate with this tasklet if needed.
                     self.set_result(fn(*args, **kwargs))
             except TaskletExit as e:
-                self.set_cancel(e.args)
+                self.set_cancelled(e.args)
             except BaseException:
                 self.set_exception(*sys.exc_info())
         except:

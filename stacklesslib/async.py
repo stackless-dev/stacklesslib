@@ -111,11 +111,11 @@ class Awaiter(object):
         the tasklet.switch() method.
         """
         try:
-            awaiter.caller.remove()
+            self.caller.remove()
             try:
                 future.execute(function, (self,) + args, kwargs)
             finally:
-                self_continue_caller()
+                self._continue_caller()
         except:
             print >> sys.stderr, "Unhandled exception in ", function
             traceback.print_exc()
