@@ -16,6 +16,169 @@ except ImportError:
     stacklessio = False
 
 
+# First of all, a set of helper functions to do monkey patching
+@contextlib.contextmanager
+def stored_modules(modules):
+    """
+    A context manager that stores the appropriate values of sys.modules
+    and restores them afterwards
+    """
+    stored = []
+    sentinel = object()
+    for m in modules:
+        mod = sys.modules.get(m, sentinel)
+        stored.append((m, mod))
+    try:
+        yield
+    finally:
+        for m, mod in stored:
+            if mod is not sentinel:
+                sys.modules[m] = mod
+            else:
+                try:
+                    del sys.modules[m]
+                except KeyError:
+                    pass
+
+@contextlib.contextmanager
+def cleared_modules(modules):
+    """
+    A context manager which clears the specified modules, i.e. removes them from sys.modules,
+    for the duration, and then restores them to the previous state.  Useful to force the load
+    of a particular module.
+    """
+    with stored_modules(modules):
+        for m in modules:
+            del sys.modules[m]
+        yield
+
+@contextlib.contextmanager
+def patched(targetname, value, up=0):
+    """
+    Patch an attribute of a named object.  The object is found in the locals or globals
+    and its attributes descended as appropriate.
+    """
+    frame = sys._getframe(up+1)
+    parts = targetname.rsplit(".", 1)
+    if len(parts) == 2:
+        # at least one dot.  Copmute head . [mid] . attr
+        path, attr = parts
+        parts = path.split(".")
+        head = parts[0]
+        mid = pargs[1:]
+
+        # find the root object
+        where, obj = find_name(frame, head)
+        # descend to the final part
+        for s in mid:
+            obj = getattr(obj, s)
+
+        with patched_attribute(obj, attr) as old:
+            yield old
+
+    else:
+        # only a single object named
+        where, obj = find_name(frame, targetname)
+        with patched_dict(where, targetname, object) as old:
+            yield old
+
+def find_name(frame, name):
+    """
+    find 'name' in a frame's locals or globals and return the corresponding
+    dict along with its object
+    """
+    if name in frame.f_locals:
+        return f_locals, f_locals[name]
+    elif name in frame.f_globals:
+        return f_globals, f_globals[name]
+    raise NameError("name %r is not found" % name)
+
+
+@contextlib.contextmanager
+def patched_dictitem(d, name, object):
+    """
+    Patch an item in a dict
+    """
+    try:
+        old = d[name]
+    except KeyError:
+        d[name] = object
+        try:
+            yield
+        finally:
+            del d[name]
+    else:
+        d[name] = object
+        try:
+            yield old
+        finally:
+            d[name] = old
+
+@contextlib.contextmanager
+def patched_attribute(object, attribute, new_object):
+    """
+    Patch an named attribute of a given object with a target object for the duration
+    """
+    try:
+        old = getattr(object, attribute)
+    except AttributeError:
+        setattr(object, attribute, new_object)
+        try:
+            yield
+        finally:
+            delattr(object, attribute)
+    else:
+        setattr(object, attribute, new_object)
+        try:
+            yield old
+        finally:
+            setattr(object, attribute, old)
+
+@contextlib.contextmanager
+def patched_module(name, module, soft=False):
+    """
+    Patch a named module with an alternative module.  If the target
+    module already exists, its dict is updated.  This is to sneak
+    the new module into places where import has already been performed.
+    """
+    old = sys.modules.get(name, None)
+    if not old or soft:
+        sys.modules[name] = module
+        try:
+            yield old
+        finally:
+            if old:
+                sys.modules[name] = old
+            else:
+                del sys.modules[name]
+    else:
+        # hard monkeypatching, trampling over old instance
+        olddict = dict(old.__dict__)
+        old.__dict__.clear()
+        old.__dict__.update(module.__dict__)
+        try:
+            yield old
+        finally:
+            old.__dict__.clear()
+            old.__dict__.update(olddict)
+
+
+# helper functions to disentangle a context manager, e.g. for
+# unittests
+def cm_start(contextmanager):
+    """
+    Enter a context manager.  The result of this function should be passed
+    to ``cm_stop()`` to exit the context manager.
+    """
+    contextmanager.__enter__()
+    return contextmanager
+
+def cm_stop(ctxt):
+    """
+    Leave a context manager.  Call with the return value of ``cm_start()``
+    """
+    ctxt.__exit__(None, None, None)
+
 
 def patch_all():
 
