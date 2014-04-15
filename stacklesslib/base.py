@@ -12,11 +12,14 @@ import stackless
 __all__ = ["time", "atomic", "block_trap", "ignore_nesting", "switch_trap"]
 
 # Get the best wallclock time to use.
-if sys.platform == "win32":
-    time = time.clock
+if hasattr(time, "monotonic"):
+    time = time.monotonic
 else:
-    # Time.clock reports CPU time on unix, not good.
-    time = time.time
+    if sys.platform == "win32":
+        time = time.clock
+    else:
+        # Time.clock reports CPU time on unix, not good.
+        time = time.time
 
 try:
     # New versions of stackless have a fast binary implementation of this
@@ -78,21 +81,23 @@ class SignalChannel(stackless.channel):
     A subclass of channel that is used to implement more complex entities.
     It has sender preference, so that a ``signal()`` call won't block.
     """
+    __slots__ = []
+
     def __init__(self):
         self.preference = 1
 
-    def signal(self):
-        """send(None) if someone is waiting"""
+    def signal(self, value=None):
+        """send(value) if someone is waiting"""
         with atomic():
             if self.balance < 0:
-                self.send(None)
+                self.send(value)
 
-    def signal_all(self):
-        """send(None) for every waiting tasklet"""
+    def signal_all(self, value=None):
+        """send(value) for every waiting tasklet"""
         with atomic():
             for i in xrange(-self.balance):
                 assert self.balance < 0
-                self.send(None)
+                self.send(value)
 
     def asignal(self):
         """send(None) if someone is waiting. Should be called while in an atomic state."""

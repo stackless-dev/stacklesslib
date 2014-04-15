@@ -5,6 +5,7 @@ import traceback
 import collections
 import stackless
 import itertools
+from .base import SignalChannel
 from .errors import TimeoutError, CancelledError
 from . import util, threadpool
 from .util import timeout as _timeout
@@ -174,21 +175,6 @@ class TaskletExecutor(WaitingExecutorMixIn, BoundedExecutorMixIn, SimpleTaskletE
         SimpleTaskletExecutor.__init__(self)
 
 
-
-class Event(stackless.channel):
-    """A channel that sends an event if anyone is listening"""
-    def __init__(self):
-        self.preference = 0
-    def set(self, val=None):
-        with atomic():
-            if self.balance < 0:
-                self.send(val)
-    def wait(self, timeout=None):
-        if timeout is None:
-            return self.receive()
-        with _timeout(timeout):
-            return self.receive()
-
 # internal future states
 PENDING = 'PENDING'
 RUNNING = 'RUNNING'
@@ -280,12 +266,13 @@ class Future(object):
         """Wait until the future has finished or been cancelled"""
         with atomic():
             if not self.done():
-                e = Event()
-                self.add_done_callback(e.set)
-                e.wait(timeout)
-
+                e = SignalChannel()
+                self.add_done_callback(e.signal)
+                with _timeout(timeout):
+                    e.receive()
+    
     def add_done_callback(self, cb):
-        """Append a callback when the event is ready"""
+        """Append a callback to be called when the future has completed."""
         if self._result:
             self._cb(cb)
         else:
