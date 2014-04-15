@@ -1,6 +1,7 @@
 import unittest
 import logging
 import itertools
+import contextlib
 import stackless
 import stacklesslib.wait
 import stacklesslib.app
@@ -10,78 +11,132 @@ import stacklesslib.main
 
 from .support import timesafe, captured_stderr
 
-class swaitable(stacklesslib.wait.WaitSite):
-    def __init__(self, t):
-        super(waitable, self).__init__()
-        self.t = t
-        self.done = False
+basetasklet = stackless.tasklet
+class OldTasklet(stackless.tasklet):
+    '''Emulate the old school tasklet'''
+    def __new__(cls, func=None):
+        i = basetasklet.__new__(cls, func)
+        i.__init__(func)
+        return i
 
-    def __repr__(self):
-        return "<waitable t=%r>"%self.t
+    def __init__(kls, func=None):
+        pass
 
-    def __lt__(self, o):
-        return self.t < o.t
+    def bind(self, func):
+        super(OldTasklet, self).bind(func)
 
-    def waitsite_signalled(self):
-        return self.done
 
-    def go(self):
-        def f():
-            stacklesslib.main.sleep(self.t)
-            with stacklesslib.base.atomic():
-                self.done = True
-                self.waitsite_signal()
-        if self.t > 0:
-            stackless.tasklet(f)()
-        else:
-            f()
+@contextlib.contextmanager
+def old():
+    """Context manager to inherit from an emulated old style tasklet """
+    oldkls = stackless.tasklet
+    oldmod = stacklesslib.wait
+    oldbasesa = twaitable.__bases__
+    oldbasesb = vwaitable.__bases__
+    stackless.tasklet = OldTasklet
+    stacklesslib.wait = reload(stacklesslib.wait)
+    stackless.tasklet = oldkls
+    # Re create all the necessary classes
+    init_waitables()
+    try:
+        yield
+    finally:
+        stacklesslib.wait = oldmod
+        # restore to old definitions
+        init_waitables()
 
-class twaitable(stacklesslib.wait.WaitableTasklet):
-    def __init__(self, t):
-        super(twaitable, self).__init__(self.tf)
-        self.t = t
-        self.done = False
+def ctxtStart(ctxt):
+    """Run the start part of a context manager"""
+    ctxt.__enter__()
+    return ctxt
 
-    def __repr__(self):
-        return "<twaitable t=%r>"%self.t
+def ctxtStop(ctxt):
+        ctxt.__exit__(None, None, None)
 
-    def __lt__(self, o):
-        return self.t < o.t
+def getswaitable():
+    class swaitable(stacklesslib.wait.WaitSite):
+        def __init__(self, t):
+            super(waitable, self).__init__()
+            self.t = t
+            self.done = False
 
-    def tf(self):
-        if self.t:
-            stacklesslib.main.sleep(self.t)
-        self.done = True
+        def __repr__(self):
+            return "<waitable t=%r>"%self.t
 
-    def go(self):
-        self()
-        if self.t == 0:
-            self.run()
+        def __lt__(self, o):
+            return self.t < o.t
 
-class vwaitable(stacklesslib.wait.ValueTasklet):
-    def __init__(self, t):
-        super(vwaitable, self).__init__(self.tf)
-        self.t = t
-        self.done = False
+        def waitsite_signalled(self):
+            return self.done
 
-    def __repr__(self):
-        return "<vwaitable t=%r>"%self.t
+        def go(self):
+            def f():
+                stacklesslib.main.sleep(self.t)
+                with stacklesslib.base.atomic():
+                    self.done = True
+                    self.waitsite_signal()
+            if self.t > 0:
+                stackless.tasklet(f)()
+            else:
+                f()
+    return swaitable
 
-    def __lt__(self, o):
-        return self.t < o.t
+def gettwaitable():
+    class twaitable(stacklesslib.wait.WaitableTasklet):
+        def __init__(self, t):
+            super(twaitable, self).__init__(self.tf)
+            self.t = t
+            self.done = False
 
-    def tf(self):
-        if self.t:
-            stacklesslib.main.sleep(self.t)
-        self.done = True
-        return self.t
+        def __repr__(self):
+            return "<twaitable t=%r>"%self.t
 
-    def go(self):
-        self()
-        if self.t == 0:
-            self.run()
+        def __lt__(self, o):
+            return self.t < o.t
 
-waitable = swaitable
+        def tf(self):
+            if self.t:
+                stacklesslib.main.sleep(self.t)
+            self.done = True
+
+        def go(self):
+            self()
+            if self.t == 0:
+                self.run()
+    return twaitable
+
+def getvwaitable():
+    class vwaitable(stacklesslib.wait.ValueTasklet):
+        def __init__(self, t):
+            super(vwaitable, self).__init__(self.tf)
+            self.t = t
+            self.done = False
+
+        def __repr__(self):
+            return "<vwaitable t=%r>"%self.t
+
+        def __lt__(self, o):
+            return self.t < o.t
+
+        def tf(self):
+            if self.t:
+                stacklesslib.main.sleep(self.t)
+            self.done = True
+            return self.t
+
+        def go(self):
+            self()
+            if self.t == 0:
+                self.run()
+    return vwaitable
+
+def init_waitables():
+    globals()["swaitable"] = getswaitable()
+    globals()["twaitable"] = gettwaitable()
+    globals()["vwaitable"] = getvwaitable()
+    globals()["waitable"] = globals()["swaitable"]
+init_waitables()
+
 
 def get_waitables(times):
     r = [waitable(t) for t in times]
@@ -228,6 +283,15 @@ class WaitValueTaskletTest(WaitTest):
         global waitable
         waitable = self.old
 
+class OldTaskletTest(WaitValueTaskletTest):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = ctxtStart(old())
+
+    @classmethod
+    def tearDownClass(cls):
+        ctxtStop(cls.tmp)
+        del cls.tmp
 
 class TestWaitSite(unittest.TestCase):
     def setUp(self):

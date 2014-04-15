@@ -27,15 +27,11 @@ class EventQueue(object):
     def time():
         return elapsed_time()
 
-    def __len__(self):
-        return len(self.queue)
-
     def reschedule(self, delta_t):
         """
         Apply a delta-t to all existing timed events
         """
         self.time_offset -= delta_t
-
 
     def call_soon(self, callback, *args):
         """
@@ -66,11 +62,19 @@ class EventQueue(object):
         time = deadline + self.time_offset
         return self._call_at(time, -1, callback, args, delay)
 
+
+    def cancel_sleep(self):
+        """
+        Attempt to wake up any thread that is sleeping until the next event
+        is due.  The default implementation does nothing.
+        """
+        pass
+
     def call_repeatedly(self, interval, callback, *args):
         """
         Cause the given callback to be called every 'interval' seconds.
         """
-        time = self.time() + self.offset + interval
+        time = self.time() + self.time_offset + interval
         return self._call_at(time, interval, callback, args)
 
     def _call_at(self, when, interval, callback, args):

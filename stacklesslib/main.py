@@ -152,7 +152,7 @@ class PollingWait(object):
                     remaining = t1-now
                     if remaining <= 0.0:
                         break
-                    self.raw_sleep(min(remaining, 0.01))
+                    self.raw_wait(min(remaining, 0.01))
         finally:
             self.break_wait = False
 

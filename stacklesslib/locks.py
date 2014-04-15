@@ -152,7 +152,7 @@ class RLock(Lock):
             self._locked -= 1
             if not self._locked:
                 self._owning = None
-                super(Lock, self).release()
+                super(RLock, self).release()
 
     # These three functions form an internal interface for the Condition.
     # It allows the Condition instances to release the lock from any

@@ -25,6 +25,11 @@ class Thread(stackless.tasklet):
     __slots__ = ["__dict__"]
     thread_count = 0
 
+    def __new__(cls, function, args, kwargs):
+        # compatibility with old stackless.  New stackless does
+        # the function binding from init.
+        return stackless.tasklet.__new__(kls, self.thread_main)
+
     def __init__(self, function, args, kwargs):
         super(Thread, self).__init__(self.thread_main)
         self(function, args, kwargs)
@@ -79,5 +84,12 @@ def allocate_lock(self=None):
 
 
 class LockType(stacklesslib.locks.Lock):
+    """
+    Check if the lock is held by someone
+    """
     def locked(self):
-        return self.owning != None
+        success = self.acquire(False)
+        if not success:
+            return True
+        self.release()
+        return False

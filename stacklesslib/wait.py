@@ -59,10 +59,16 @@ class WaitSite(object):
 
 class WaitableTasklet(stackless.tasklet, WaitSite):
     """A tasklet that implements the wait interface"""
+    def __new__(cls, *args, **kwds):
+        # Compatibility with old version of stackless that required
+        # that no extra arguments were passed to __new__
+        return stackless.tasklet.__new__(cls)
+
     def __init__(self, func, args=None, kwargs=None):
         WaitSite.__init__(self)
         self.__done__ = False
-        self.bind(func, args, kwargs)
+        if func or args or kwargs:
+            self.bind(func, args, kwargs)
 
     def bind(self, func, args=None, kwargs=None):
         f = func
@@ -74,12 +80,16 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
                     self.__done__ = True
                     self.waitsite_signal()
             f = helper
-        super(WaitableTasklet, self).bind(f, args, kwargs)
+        # compatibility with old stackless
+        if args or kwargs:
+            super(WaitableTasklet, self).bind(f, args, kwargs)
+        else:
+            super(WaitableTasklet, self).bind(f)
 
     def waitsite_signalled(self):
         return self.__done__
 
-    def join(timeout=None):
+    def join(self, timeout=None):
         wait([self], timeout)
 
 
@@ -103,7 +113,7 @@ class ValueTasklet(WaitableTasklet):
             f = helper
         super(ValueTasklet, self).bind(f, args, kwargs)
 
-    def get(block=True, timeout=None):
+    def get(self, block=True, timeout=None):
         with atomic():
             if not self.__done__ and block:
                 self.join(timeout)

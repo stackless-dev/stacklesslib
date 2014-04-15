@@ -181,15 +181,15 @@ class Timer(Thread):
         self._cancelled = False
         self._interval = interval
         self._function = function
-        Thread.__init__(self, target=self._function, args=args, kwargs=kwargs)
+        Thread.__init__(self, target=self._tasklet, args=args, kwargs=kwargs)
 
     def cancel(self):
         self._cancelled = True
 
-    def _function(self, *args, **kwargs):
+    def _tasklet(self, *args, **kwargs):
         app_sleep(self._interval)
         if not self._cancelled:
-            self.function(*args, **kwargs)
+            self._function(*args, **kwargs)
 
 
 #Create the MainThread instance
