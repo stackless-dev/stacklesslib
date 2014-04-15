@@ -41,8 +41,8 @@ class EventQueue(object):
         """
         Cause the given callback to be performed as soon as possible
         """
-        # -1 is a special time value
-        return self._call_at(-1, -1, callback, args)
+        # policy decision.  soon means now.  There might be other earlier, though
+        return self._call_at(self.time(), -1, callback, args)
 
     def call_later(self, delay, callback, *args):
         """
@@ -58,6 +58,13 @@ class EventQueue(object):
         result = self.call_later(delay, callback, *args)
         self.cancel_sleep()
         return result
+
+    def call_at(self, deadline, callback, *args):
+        """
+        Cause the given callback to be scheduled for call at a certain time
+        """
+        time = deadline + self.time_offset
+        return self._call_at(time, -1, callback, args, delay)
 
     def call_repeatedly(self, interval, callback, *args):
         """
@@ -103,7 +110,7 @@ class EventQueue(object):
         with self.lock:
             while self.queue:
                 t = self.queue[0][0]
-                if t < 0.0 or t <= now:
+                if t <= now:
                     batch.append(heapq.heappop(self.queue))
                 else:
                     break
