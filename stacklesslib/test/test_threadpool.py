@@ -85,7 +85,7 @@ class TestSimpleThreadPool(unittest.TestCase):
                 n[0] += 1
                 if n[0] > m[0]:
                     m[0] = n[0]
-            time.sleep(0.001)
+            time.sleep(0.01)
             with l:
                 n[0] -= 1
                 c[0] += 1
