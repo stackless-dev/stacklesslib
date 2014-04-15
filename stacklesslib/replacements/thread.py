@@ -28,7 +28,7 @@ class Thread(stackless.tasklet):
     def __new__(cls, function, args, kwargs):
         # compatibility with old stackless.  New stackless does
         # the function binding from init.
-        return stackless.tasklet.__new__(kls, self.thread_main)
+        return stackless.tasklet.__new__(cls, cls.thread_main)
 
     def __init__(self, function, args, kwargs):
         super(Thread, self).__init__(self.thread_main)
