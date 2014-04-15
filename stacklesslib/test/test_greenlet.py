@@ -4,7 +4,7 @@ import time
 import threading
 import unittest
 
-from greenlet import greenlet
+from stacklesslib.replacements.greenlet import greenlet
 
 class SomeError(Exception):
     pass
