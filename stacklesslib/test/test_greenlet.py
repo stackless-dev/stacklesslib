@@ -82,6 +82,7 @@ class GreenletTests(unittest.TestCase):
 
     def test_threads(self):
         success = []
+        self.test_simple()
         def f():
             self.test_simple()
             success.append(True)
@@ -162,7 +163,8 @@ class GreenletTests(unittest.TestCase):
     def test_frame(self):
         def f1():
             f = sys._getframe(0)
-            self.assertEqual(f.f_back, None)
+            # disable this test, our fake greenlets are bootstrapped by higher level functions
+            # self.assertEqual(f.f_back, None)
             greenlet.getcurrent().parent.switch(f)
             return "meaning of life"
         g = greenlet(f1)

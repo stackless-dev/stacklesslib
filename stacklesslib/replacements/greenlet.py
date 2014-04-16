@@ -2,7 +2,108 @@
 import weakref
 import sys
 
-import _tealet
+import stackless
+from stacklesslib.base import atomic
+
+class Scheduler(object):
+    """A scheduler that switches between tasklets like greenlets"""
+    def __init__(self):
+        self.prev = self.value = None
+
+    def create(self, function):
+        """Create a new tasklet, bound to a function that will return a tuple
+           on exit: (t, v)
+           t = the target tasklet to switch to, and v the value to provide
+        """
+        def top(args, kwargs):
+            self._start(function, args, kwargs)
+        return stackless.tasklet(top)
+
+    def start(self, t, args=(), kwargs={}):
+        """Start a context previously created"""
+        prev = stackless.getcurrent()
+        # NOTE: Disable this test to enable a weird crash in stackless when running the greenlet unittests
+        if t.thread_id != prev.thread_id:
+            raise error("can't switch to a different thread")
+        # print "start %s %s" %(id(prev), id(t))
+        with atomic():
+            t(args, kwargs)
+            self.prev = prev
+            t.run()
+            return self._return()
+
+    def _return(self):
+        if self.prev is not None:
+            self.prev.remove()
+            self.prev = None
+        value, self.value = self.value, None
+        return value
+
+    def _start(self, function, args, kwargs):
+        self.prev.remove()
+        self.prev = None
+        r, v = function(*args, **kwargs)
+        #r is the tasklet to switch back to, v is the value passed to it
+        # print "end %s %s" % ( id(stackless.getcurrent()), id(r) )
+        with atomic():
+            self.value = v
+            self.previous = None # the target does not remove us
+            r.run()
+
+    def switch(self, target, value=None):
+        prev = stackless.getcurrent()
+        # print "sw %s %s" % (id(prev), id(target))    
+        if prev == target:
+            return value
+        if target.thread_id != prev.thread_id:
+            raise error("can't switch to a different thread")
+        with atomic():
+            self.prev = prev
+            self.value = value
+            target.run()
+            assert self.prev != prev
+            return self._return()
+
+class NewScheduler(Scheduler):
+    """A version of the above for use when tasklets support the .switch method"""
+    def start(self, t, args=(), kwargs={}):
+        """Start a context previously created"""
+        prev = stackless.getcurrent()
+        # NOTE: Disable this test to enable a weird crash in stackless when running the greenlet unittests
+        if t.thread_id != prev.thread_id:
+            raise error("can't switch to a different thread")
+        # print "start %s %s" %(id(prev), id(t))
+        with atomic():
+            t(args, kwargs)
+            t.switch()
+            return self._return()
+
+    def _return(self):
+        value, self.value = self.value, None
+        return value
+
+    def _start(self, function, args, kwargs):
+        r, v = function(*args, **kwargs)
+        #r is the tasklet to switch back to, v is the value passed to it
+        # print "end %s %s" % ( id(stackless.getcurrent()), id(r) )
+        with atomic():
+            self.value = v
+            r.run() #no switch, let this tasklet continue to end
+
+    def switch(self, target, value=None):
+        prev = stackless.getcurrent()
+        # print "sw %s %s" % (id(prev), id(target))    
+        if prev == target:
+            return value
+        if target.thread_id != prev.thread_id:
+            raise error("can't switch to a different thread")
+        with atomic():
+            self.value = value
+            target.switch()
+            return self._return()
+
+if hasattr(stackless.tasklet, "switch"):
+    Scheduler = NewScheduler
 
 
 class error(Exception):
@@ -14,47 +115,64 @@ class ErrorWrapper(object):
     def __enter__(self):
         pass
     def __exit__(self, tp, val, tb):
-        if isinstance(val, _tealet.TealetError):
+        if type(val) is RuntimeError: #the error stackless raises
             raise error, val, tb
 ErrorWrapper = ErrorWrapper() # stateless singleton
 
-tealetmap = weakref.WeakValueDictionary()
+taskletmap = weakref.WeakValueDictionary()
+scheduler = Scheduler()
 
+def _getmain():
+    return _lookup(stackless.main())
+    
 def getcurrent():
-    t = _tealet.current()
+    return _lookup(stackless.getcurrent())
+
+def _lookup(s):
     try:
-        return tealetmap[t]
+        return taskletmap[s]
     except KeyError:
-        assert _tealet.main() is t
-        return greenlet(parent=t)
+        return greenlet(parent=s)
 
 class greenlet(object):
     def __init__(self, run=None, parent=None):
         # must create it on this thread, not dynamically when run
         # this will bind it to the right thread
+        self.dead = False
         self.run = run
-        if isinstance(parent, _tealet.tealet):
-            # main greenlet for this thread
-            self._tealet = parent
-            self.parent = self # main greenlets are their own parents and don't go away
-            self._main = self
-            self._garbage = []
+        if isinstance(parent, stackless.tasklet):
+            # we were called by getcurrent.  We are dynamically generated, e.g. the
+            # main tealet for the thread.
+            self.started = True
+            self._tasklet = parent
+            if parent.is_main:
+                # print "creating main for ", id(parent)
+                # the main tasklet's greenlet
+                self.parent = self # main greenlets are their own parents and don't go away
+                self._main = self
+                self._garbage = []
+            else:
+                # print "creatingn stooge for", id(parent)
+                self.parent = getmain()
+                self._main = self.parent._main
         else:
-            self._tealet = _tealet.tealet().stub()
+            # regular greenlet started to run a function
+            self._tasklet = scheduler.create(self._greenlet_main)
             if not parent:
                 parent = getcurrent()
             self.parent = parent
             self._main = parent._main
+            self.started = False
             # perform housekeeping
             del self._main._garbage[:]
-        tealetmap[self._tealet] = self
+        taskletmap[self._tasklet] = self
 
     def __del__(self):
         if self:
-            if _tealet.current() == self._tealet:
+            if stackless.getcurrent() == self._tasklet:
                 # Can't kill ourselves from here
                 return
-            tealetmap[self._tealet] = self # re-insert
+            taskletmap[self._tasklet] = self # re-insert
             old = self.parent
             self.parent = getcurrent()
             try:
@@ -68,20 +186,18 @@ class greenlet(object):
 
     @property
     def gr_frame(self):
-        if self._tealet is _tealet.current():
-            return self._tealet.frame
+        if self._tasklet is stackless.getcurrent():
+            return self._tasklet.frame
         # tealet is paused.  Emulated greenlet by returning
         # the frame which called "switch" or "throw"
-        f = self._tealet.frame
-        if f:
-            return f.f_back.f_back
-
-    @property
-    def dead(self):
-        return self._tealet.state == _tealet.STATE_EXIT
+        f = self._tasklet.frame
+        try:
+            return f.f_back.f_back.f_back
+        except AttributeError:
+            return None
 
     def __nonzero__(self):
-        return self._tealet.state == _tealet.STATE_RUN
+        return  self.started and not self.dead
 
     def switch(self, *args, **kwds):
         return self._switch((False, args, kwds))
@@ -96,12 +212,13 @@ class greenlet(object):
             run = getattr(self, "run", None)
             if run:
                 del self.run
-                #here we can tweak how we create the new stack
-                arg = self._tealet.run(self._greenlet_main, (run, arg))
+                self.started = True
+                arg = scheduler.start(self._tasklet, ((run, arg),))
             else:
                 if not self:
-                    return self._parent()._switch(arg)
-                arg = self._tealet.switch(arg)
+                    # target is dead, switch to its next alive parent
+                    return scheduler.switch(self._parent()._tasklet, arg)
+                arg = scheduler.switch(self._tasklet, arg)
         return self._Result(arg)
 
     @staticmethod
@@ -121,11 +238,12 @@ class greenlet(object):
         return None
 
     @staticmethod
-    def _greenlet_main(current, arg):
+    def _greenlet_main(arg):
         run, (err, args, kwds) = arg
         try:
             if not err:
-                result = _tealet.hide_frame(run, args, kwds)
+                #result = _tealet.hide_frame(run, args, kwds)
+                result = run(*args, **kwds)
                 arg = (False, (result,), None)
             else:
                 raise err, args, kwds
@@ -133,8 +251,11 @@ class greenlet(object):
             arg = (False, (e,), None)
         except:
             arg = sys.exc_info()
-        p = getcurrent()._parent()
-        return p._tealet, arg
+        c = getcurrent()
+        c.dead = True
+        p = c._parent()
+        #whom do we switch to?
+        return p._tasklet, arg
 
     def _parent(self):
         # Find the closest parent alive
