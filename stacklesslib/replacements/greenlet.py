@@ -5,6 +5,8 @@ import sys
 import stackless
 from stacklesslib.base import atomic
 
+__version__ = "0.3.2"
+
 class Scheduler(object):
     """A scheduler that switches between tasklets like greenlets"""
     def __init__(self):
@@ -52,7 +54,7 @@ class Scheduler(object):
 
     def switch(self, target, value=None):
         prev = stackless.getcurrent()
-        # print "sw %s %s" % (id(prev), id(target))    
+        # print "sw %s %s" % (id(prev), id(target))
         if prev == target:
             return value
         if target.thread_id != prev.thread_id:
@@ -92,7 +94,7 @@ class NewScheduler(Scheduler):
 
     def switch(self, target, value=None):
         prev = stackless.getcurrent()
-        # print "sw %s %s" % (id(prev), id(target))    
+        # print "sw %s %s" % (id(prev), id(target))
         if prev == target:
             return value
         if target.thread_id != prev.thread_id:
@@ -108,6 +110,7 @@ if hasattr(stackless.tasklet, "switch"):
 
 class error(Exception):
     pass
+
 class GreenletExit(BaseException):
     pass
 
@@ -115,8 +118,11 @@ class ErrorWrapper(object):
     def __enter__(self):
         pass
     def __exit__(self, tp, val, tb):
-        if type(val) is RuntimeError: #the error stackless raises
-            raise error, val, tb
+        if tp:
+            if isinstance(val, TaskletExit):
+                raise GreenletExit(*val.args), None, tb
+            if type(val) is RuntimeError: #the error stackless raises
+                raise error, val, tb
 ErrorWrapper = ErrorWrapper() # stateless singleton
 
 taskletmap = weakref.WeakValueDictionary()
@@ -124,7 +130,7 @@ scheduler = Scheduler()
 
 def _getmain():
     return _lookup(stackless.main())
-    
+
 def getcurrent():
     return _lookup(stackless.getcurrent())
 
@@ -139,11 +145,12 @@ class greenlet(object):
         # must create it on this thread, not dynamically when run
         # this will bind it to the right thread
         self.dead = False
-        self.run = run
+        if run is not None:
+            self.run = run
         if isinstance(parent, stackless.tasklet):
             # we were called by getcurrent.  We are dynamically generated, e.g. the
             # main tealet for the thread.
-            self.started = True
+            self._started = True
             self._tasklet = parent
             if parent.is_main:
                 # print "creating main for ", id(parent)
@@ -153,16 +160,15 @@ class greenlet(object):
                 self._garbage = []
             else:
                 # print "creatingn stooge for", id(parent)
-                self.parent = getmain()
-                self._main = self.parent._main
+                self.parent = self._main =_getmain()
         else:
             # regular greenlet started to run a function
             self._tasklet = scheduler.create(self._greenlet_main)
-            if not parent:
+            if parent is None:
                 parent = getcurrent()
             self.parent = parent
             self._main = parent._main
-            self.started = False
+            self._started = False
             # perform housekeeping
             del self._main._garbage[:]
         taskletmap[self._tasklet] = self
@@ -197,45 +203,51 @@ class greenlet(object):
             return None
 
     def __nonzero__(self):
-        return  self.started and not self.dead
+        return  self._started and not self.dead
 
     def switch(self, *args, **kwds):
-        return self._switch((False, args, kwds))
+        return self._Result(self._switch((False, args, kwds)))
 
     def throw(self, t=None, v=None, tb=None):
         if not t:
             t = GreenletExit
-        return self._switch((t, v, tb))
+        return self._Result(self._switch((t, v, tb)))
 
     def _switch(self, arg):
         with ErrorWrapper:
             run = getattr(self, "run", None)
             if run:
-                del self.run
-                self.started = True
-                arg = scheduler.start(self._tasklet, ((run, arg),))
+                try:
+                    del self.run
+                except AttributeError:
+                    pass # it was probably a subclass with a run method
+                self._started = True
+                return scheduler.start(self._tasklet, ((run, arg),))
             else:
                 if not self:
                     # target is dead, switch to its next alive parent
                     return scheduler.switch(self._parent()._tasklet, arg)
-                arg = scheduler.switch(self._tasklet, arg)
+                return scheduler.switch(self._tasklet, arg)
         return self._Result(arg)
 
     @staticmethod
     def _Result(arg):
+        """Convert the switch args into a single return value or raise exception"""
         # The return value is stored in the current greenlet.
         err, args, kwds = arg
-        if err:
-            raise err, args, kwds
-        if args and kwds:
-            return (args, kwds)
-        elif kwds:
+        # most common case first
+        if not err:
+            if not kwds:
+                if len(args) == 1:
+                    return args[0]
+                elif not args:
+                    return None
+                return args
+            if args:
+                return (args, kwds)
             return kwds
-        elif args:
-            if len(args) == 1:
-                return args[0]
-            return args
-        return None
+        else:
+            raise err, args, kwds
 
     @staticmethod
     def _greenlet_main(arg):
