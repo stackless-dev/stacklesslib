@@ -159,7 +159,7 @@ class greenlet(object):
                 self._main = self
                 self._garbage = []
             else:
-                # print "creatingn stooge for", id(parent)
+                # print "creating stooge for", id(parent)
                 self.parent = self._main =_getmain()
         else:
             # regular greenlet started to run a function
@@ -215,8 +215,8 @@ class greenlet(object):
 
     def _switch(self, arg):
         with ErrorWrapper:
-            run = getattr(self, "run", None)
-            if run:
+            if not self._started:
+                run = self.run
                 try:
                     del self.run
                 except AttributeError:
