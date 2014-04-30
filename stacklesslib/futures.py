@@ -373,4 +373,5 @@ def all_results(fs, timeout=None):
         return [f.result() for f in fs]
 
 def any_result(fs, timeout=None):
-    return next(as_completed(fs, timeout)).result()
+    for i in as_completed(fs, timeout):
+        return i.result()
