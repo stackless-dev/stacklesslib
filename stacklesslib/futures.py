@@ -268,18 +268,27 @@ class Future(object):
             if not self.done():
                 e = SignalChannel()
                 self.add_done_callback(e.signal)
-                with _timeout(timeout):
-                    e.receive()
+                try:
+                    with _timeout(timeout):
+                        e.receive()
+                finally:
+                    self.remove_done_callback(e.signal)
     
     def add_done_callback(self, cb):
         """Append a callback to be called when the future has completed."""
+        self.callbacks.append(cb)
         if self._result:
             self._cb(cb)
-        else:
-            self.callbacks.append(cb)
 
+    def remove_done_callback(self, cb):
+        """Remove a callback previously registered with 'add_done_callback()'"""
+        try:
+            self.callbacks.remove(cb)
+        except ValueError:
+            pass
+        
     def _on_ready(self):
-        for cb in self.callbacks:
+        for cb in self.callbacks[:]:
             self._cb(cb)
 
     def _cb(self, cb):

@@ -20,7 +20,7 @@ from stacklesslib.errors import TimeoutError
 class WaitSite(object):
     """
     This class implements the interface for a waitable object, the
-    "add_done_callback" function.
+    'add_done_callback()' and 'remove_done_callback()' methods.
     """
     def __init__(self):
         self._callbacks = []
@@ -31,7 +31,7 @@ class WaitSite(object):
 
     def waitsite_signal(self):
         callbacks, self._callbacks = self._callbacks, []
-        for cb in callbacks:
+        for cb in callbacks[:]:
             self._cb(cb)
 
     # This function is synonomous with the function in futures
@@ -41,10 +41,18 @@ class WaitSite(object):
         if object is already signalled.
         """
         # immediate callback if already signalled
+        self._callbacks.append(cb)
         if self.waitsite_signalled():
             self._cb(cb)
-        else:
-            self._callbacks.append(cb)
+
+    def remove_done_callback(self, cb):
+        """
+        Remove the callback previously registered with 'add_done_callback()'
+        """
+        try:
+            self._callbacks.remove(cb)
+        except ValueError:
+            pass
 
     def _cb(self, cb):
         try:
@@ -131,32 +139,44 @@ def iwait(objects, timeout=None, raise_timeout=False):
     """
     channel = stacklesslib.util.qchannel()
     count = 0
-    with atomic():
-        for obj in objects:
-            obj.add_done_callback(channel.send)
-            count += 1
+    callbacks = {}
+    def get_cb(obj):
+        def cb(waitable):
+            waitable.remove_done_callback(callbacks.pop(waitable))
+            channel.send(waitable)
+        callbacks[obj] = cb
+        return cb
 
-    if timeout is not None:
-        # handle 0 timeouts by not blocking at all
-        if timeout == 0:
-            with atomic():
-                while channel.balance > 0:
-                    count -= 1
-                    yield channel.receive()
-                if count and raise_timeout:
-                    raise TimeoutError()
-        else:
-            timeouts = stacklesslib.util.Timeouts(timeout)
-            try:
-                for i in xrange(count):
-                    with timeouts.timeout():
+    try:
+        with atomic():
+            for obj in objects:
+                obj.add_done_callback(get_cb(obj))
+                count += 1
+
+        if timeout is not None:
+            # handle 0 timeouts by not blocking at all
+            if timeout == 0:
+                with atomic():
+                    while channel.balance > 0:
+                        count -= 1
                         yield channel.receive()
-            except TimeoutError:
-                if raise_timeout:
-                    raise
-    else:
-        for i in xrange(count):
-            yield channel.receive()
+                    if count and raise_timeout:
+                        raise TimeoutError()
+            else:
+                timeouts = stacklesslib.util.Timeouts(timeout)
+                try:
+                    for i in xrange(count):
+                        with timeouts.timeout():
+                            yield channel.receive()
+                except TimeoutError:
+                    if raise_timeout:
+                        raise
+        else:
+            for i in xrange(count):
+                yield channel.receive()
+    finally:
+        for obj, cb in callbacks.items():
+            obj.remove_done_callback(cb)
 
 def wait(objects, timeout=None, count=None):
     """
