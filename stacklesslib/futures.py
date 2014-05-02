@@ -184,13 +184,13 @@ CANCELLED = 'CANCELLED'
 CANCELLED_AND_NOTIFIED = 'CANCELLED_AND_NOTIFIED'
 FINISHED = 'FINISHED'
 
-class Future(object):
+class Future(_waitmodule.WaitSite):
     """A tasklet based future object"""
 
     def __init__(self):
+        super(Future, self).__init__()
         self.state = PENDING
         self._result = None
-        self.callbacks = []
         self.tasklet = None
 
     def execute(self, fn, args=(), kwargs={}):
@@ -274,28 +274,9 @@ class Future(object):
                 finally:
                     self.remove_done_callback(e.signal)
     
-    def add_done_callback(self, cb):
-        """Append a callback to be called when the future has completed."""
-        self.callbacks.append(cb)
-        if self._result:
-            self._cb(cb)
-
-    def remove_done_callback(self, cb):
-        """Remove a callback previously registered with 'add_done_callback()'"""
-        try:
-            self.callbacks.remove(cb)
-        except ValueError:
-            pass
-        
-    def _on_ready(self):
-        for cb in self.callbacks[:]:
-            self._cb(cb)
-
-    def _cb(self, cb):
-        try:
-            cb(self)
-        except Exception:
-            traceback.print_exc()
+    def waitsite_signalled(self):
+        # is the object ready when the callback is added?
+        return self._result
 
     def set_result(self, result):
         with atomic():
@@ -303,7 +284,7 @@ class Future(object):
                 assert self.state == RUNNING
                 self._result = (True, result)
                 self.state = FINISHED
-                self._on_ready()
+                self.waitsite_signal()
             else:
                 # the only race should be with the cancelled state
                 assert self.state == CANCELLED
@@ -319,7 +300,7 @@ class Future(object):
                     val = exc(*val)
                 self._result = (False, (exc, val, tb))
                 self.state = FINISHED
-                self._on_ready()
+                self.waitsite_signal()
             else:
                 assert self.state == CANCELLED
 
@@ -329,7 +310,7 @@ class Future(object):
                 assert self.state in (RUNNING, PENDING)
                 self._result = (False, (None, args))
                 self.state = CANCELLED
-                self._on_ready()
+                self.waitsite_signal()
 
 
 FIRST_COMPLETED = 0
