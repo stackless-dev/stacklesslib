@@ -39,6 +39,8 @@ class Scheduler(object):
             self.prev.remove()
             self.prev = None
         value, self.value = self.value, None
+        if value is None:
+            raise RuntimeError("unexpected switch to tasklet")
         return value
 
     def _start(self, function, args, kwargs):
@@ -55,7 +57,7 @@ class Scheduler(object):
     def switch(self, target, value=None):
         prev = stackless.getcurrent()
         # print "sw %s %s" % (id(prev), id(target))
-        if prev == target:
+        if prev is target:
             return value
         if target.thread_id != prev.thread_id:
             raise error("can't switch to a different thread")
@@ -81,7 +83,11 @@ class NewScheduler(Scheduler):
             return self._return()
 
     def _return(self):
+        # note, it would be great to be able to use the tempval of the
+        # tasklet, but it appears to get cleared when switching.
         value, self.value = self.value, None
+        if value is None:
+            raise RuntimeError("unexpected switch to tasklet")
         return value
 
     def _start(self, function, args, kwargs):
@@ -94,8 +100,8 @@ class NewScheduler(Scheduler):
 
     def switch(self, target, value=None):
         prev = stackless.getcurrent()
-        # print "sw %s %s" % (id(prev), id(target))
-        if prev == target:
+        # print "sw %s(%s) %s(%s)" % (id(prev), prev.thread_id, id(target), target.thread_id)
+        if prev is target:
             return value
         if target.thread_id != prev.thread_id:
             raise error("can't switch to a different thread")
@@ -129,7 +135,7 @@ taskletmap = weakref.WeakValueDictionary()
 scheduler = Scheduler()
 
 def _getmain():
-    return _lookup(stackless.main())
+    return _lookup(stackless.getmain())
 
 def getcurrent():
     return _lookup(stackless.getcurrent())
@@ -163,12 +169,12 @@ class greenlet(object):
                 self.parent = self._main =_getmain()
         else:
             # regular greenlet started to run a function
+            self._started = False
             self._tasklet = scheduler.create(self._greenlet_main)
             if parent is None:
                 parent = getcurrent()
             self.parent = parent
             self._main = parent._main
-            self._started = False
             # perform housekeeping
             del self._main._garbage[:]
         taskletmap[self._tasklet] = self
@@ -228,7 +234,6 @@ class greenlet(object):
                     # target is dead, switch to its next alive parent
                     return scheduler.switch(self._parent()._tasklet, arg)
                 return scheduler.switch(self._tasklet, arg)
-        return self._Result(arg)
 
     @staticmethod
     def _Result(arg):

@@ -4,6 +4,16 @@ import time
 import threading
 import unittest
 
+if hasattr(time, "real_sleep"):
+    sleep = time.real_sleep
+else:
+    sleep = time.sleep
+
+try:
+    threading = threading.real_threading
+except AttributeError:
+    pass
+
 from stacklesslib.replacements.greenlet import greenlet
 
 class SomeError(Exception):
@@ -178,7 +188,7 @@ class GreenletTests(unittest.TestCase):
 
     def test_thread_bug(self):
         def runner(x):
-            g = greenlet(lambda: time.sleep(x))
+            g = greenlet(lambda: sleep(x))
             g.switch()
         t1 = threading.Thread(target=runner, args=(0.2,))
         t2 = threading.Thread(target=runner, args=(0.3,))
