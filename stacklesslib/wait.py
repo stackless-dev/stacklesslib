@@ -74,7 +74,7 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
 
     def __init__(self, func, args=None, kwargs=None):
         WaitSite.__init__(self)
-        self.__done__ = False
+        self._done = False
         if func or args or kwargs:
             self.bind(func, args, kwargs)
 
@@ -85,7 +85,7 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
                 try:
                     return func(*args, **kwargs)
                 finally:
-                    self.__done__ = True
+                    self._done = True
                     self.waitsite_signal()
             f = helper
         # compatibility with old stackless
@@ -95,7 +95,7 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
             super(WaitableTasklet, self).bind(f)
 
     def waitsite_signalled(self):
-        return self.__done__
+        return self._done
 
     def join(self, timeout=None):
         wait([self], timeout)
@@ -105,31 +105,31 @@ class ValueTasklet(WaitableTasklet):
     """A WaitableTasklet that holds on to its return value or exit exception"""
     def __init__(self, func, args=None, kwargs=None):
         super(ValueTasklet, self).__init__(func, args, kwargs)
-        self.__value__ = None
-        self.__error__ = None
+        self._value = None
+        self._error = None
 
     def bind(self, func, args=None, kwargs=None):
         f = func
         if func:
             def helper(*args, **kwargs):
                 try:
-                    self.__value__ = func(*args, **kwargs)
+                    self._value = func(*args, **kwargs)
                 except TaskletExit as e:
-                    self.__value__ = e  # considered a success
+                    self._value = e  # considered a success
                 except:
-                    self.__error__ = sys.exc_info()
+                    self._error = sys.exc_info()
             f = helper
         super(ValueTasklet, self).bind(f, args, kwargs)
 
     def get(self, block=True, timeout=None):
         with atomic():
-            if not self.__done__ and block:
+            if not self._done and block:
                 self.join(timeout)
-            if not self.__done__:
+            if not self._done:
                 raise TimeoutError
-            if self.__error__:
-                raise self.__error__[0], self.__error__[1], self.__error__[2]
-            return self.__value__
+            if self._error:
+                raise self._error[0], self._error[1], self._error[2]
+            return self._value
 
 
 def iwait(objects, timeout=None, raise_timeout=False):
