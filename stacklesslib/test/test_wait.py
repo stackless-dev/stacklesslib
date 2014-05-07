@@ -2,6 +2,7 @@ import unittest
 import logging
 import itertools
 import contextlib
+import weakref
 import stackless
 import stacklesslib.wait
 import stacklesslib.app
@@ -346,6 +347,79 @@ class TestWaitSite(unittest.TestCase):
         self.assertIn("by zero", e[0])
 
 
+class TestObserver(unittest.TestCase):
+    def test_observer(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+
+    def test_got_callback(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+        self.assertFalse(o.got_callback)
+        w.waitsite_signal()
+        self.assertTrue(o.got_callback)
+
+    def test_cb(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+        oo = stacklesslib.wait.Observer(o)
+        self.assertFalse(oo.got_callback)
+        w.waitsite_signal()
+        self.assertTrue(oo.got_callback)
+
+    def test_weak(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+        wr = weakref.ref(o)
+        self.assertTrue(wr())
+        del o
+        self.assertFalse(wr())
+
+    def test_close(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+        self.assertFalse(o.got_callback)
+        o.close()
+        w.waitsite_signal()
+        self.assertFalse(o.got_callback)
+
+    def test_filter(self):
+        class O(stacklesslib.wait.Observer):
+            def filter(self):
+                return False
+        w = stacklesslib.wait.WaitSite()
+        o = O(w)
+        oo = stacklesslib.wait.Observer(o)
+        self.assertFalse(oo.got_callback)
+        w.waitsite_signal()
+        self.assertFalse(oo.got_callback)
+
+    def test_initial_call(self):
+        class W(stacklesslib.wait.WaitSite):
+            def waitsite_signalled(self):
+                return True
+        w = W()
+        o = stacklesslib.wait.Observer(w)
+        self.assertTrue(o.got_callback)
+        o.got_callback = False
+        w.waitsite_signal()
+        self.assertTrue(o.got_callback)
+
+    def test_initial_call_and_filter(self):
+        class W(stacklesslib.wait.WaitSite):
+            def waitsite_signalled(self):
+                return True
+        class O(stacklesslib.wait.Observer):
+            def filter(self):
+                return False
+        w = W()
+        o = O(w)
+        oo = stacklesslib.wait.Observer(o)
+        self.assertTrue(o.got_callback)
+        self.assertFalse(oo.got_callback)
+        w.waitsite_signal()
+        self.assertTrue(o.got_callback)
+        self.assertFalse(oo.got_callback)
 
 
 from .support import load_tests

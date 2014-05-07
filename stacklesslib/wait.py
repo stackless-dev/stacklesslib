@@ -15,6 +15,7 @@ import stackless
 import stacklesslib.util
 from stacklesslib.base import atomic
 from stacklesslib.errors import TimeoutError
+from stacklesslib.weakmethod import WeakMethodProxy
 
 
 class WaitSite(object):
@@ -26,7 +27,11 @@ class WaitSite(object):
         self._callbacks = []
 
     def waitsite_signalled(self):
-        """Override this to reflect the state of the object"""
+        """
+        This function is consulted when a callback is added and if it returns
+        True, an immediate callback is performed, rather than scheduling one later.
+        If a waitsite is stateful, this should be redefined to reflect its state.
+        """
         return False
 
     def waitsite_signal(self):
@@ -65,6 +70,45 @@ class WaitSite(object):
         traceback.print_exception(*ei)
 
 
+class Observer(WaitSite):
+    """
+    An observer observes another waitable.  With subclassing this can be used
+    to add state logic.  This class acts as a proxy.
+    """
+    def __init__(self, observed):
+        super(Observer, self).__init__()
+        self.got_callback = False
+        self.cb = WeakMethodProxy(self.callback)
+        # We use a weak method here, so that the callback doesn't keep us alive.
+        self.observed = observed
+        observed.add_done_callback(self.cb)
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.observed is not None:
+            self.observed.remove_done_callback(self.cb)
+            self.observed = None
+
+    def callback(self, target):
+        self.got_callback = True
+        if self.observed is not None:
+            if self.filter():
+                self.waitsite_signal()
+
+    def waitsite_signalled(self):
+        # A callback on add only occurs if a callback already occurred and filter approves
+        return self.got_callback and self.filter()
+
+    def filter(self):
+        """
+        Decides if a callback from the observed should cause a callback
+        to any waiters.
+        """
+        return True
+
+
 class WaitableTasklet(stackless.tasklet, WaitSite):
     """A tasklet that implements the wait interface"""
     def __new__(cls, *args, **kwds):
@@ -98,7 +142,10 @@ class WaitableTasklet(stackless.tasklet, WaitSite):
         return self._done
 
     def join(self, timeout=None):
-        wait([self], timeout)
+        """
+        Wait for the tasklet to finish.  Returns True unless the timeout expired.
+        """
+        return bool(wait([self], timeout))
 
 
 class ValueTasklet(WaitableTasklet):
@@ -122,6 +169,9 @@ class ValueTasklet(WaitableTasklet):
         super(ValueTasklet, self).bind(f, args, kwargs)
 
     def get(self, block=True, timeout=None):
+        """
+        Get the result of the tasklet or raise exception
+        """
         with atomic():
             if not self._done and block:
                 self.join(timeout)
@@ -130,6 +180,12 @@ class ValueTasklet(WaitableTasklet):
             if self._error:
                 raise self._error[0], self._error[1], self._error[2]
             return self._value
+
+    def result(self, timeout=None):
+        """
+        A function conforming to the futures interface
+        """
+        return self.get(timeout=timeout)
 
 
 def iwait(objects, timeout=None, raise_timeout=False):
