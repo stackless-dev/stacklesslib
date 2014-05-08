@@ -14,7 +14,7 @@ import itertools
 import stackless
 import stacklesslib.util
 from stacklesslib.base import atomic
-from stacklesslib.errors import TimeoutError
+from stacklesslib.errors import TimeoutError, CancelledError
 from stacklesslib.weakmethod import WeakMethodProxy
 
 
@@ -162,7 +162,8 @@ class ValueTasklet(WaitableTasklet):
                 try:
                     self._value = func(*args, **kwargs)
                 except TaskletExit as e:
-                    self._value = e  # considered a success
+                    # Convert TaskletExit to CancelledError
+                    self._error = CancelledError, CancelledError(e),  sys.exc_info()[2] # considered a success
                 except:
                     self._error = sys.exc_info()
             f = helper

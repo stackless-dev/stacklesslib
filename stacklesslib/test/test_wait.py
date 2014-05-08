@@ -450,7 +450,7 @@ class test_swait(unittest.TestCase):
         self.assertRaises(stacklesslib.errors.TimeoutError, stacklesslib.wait.swait, t, 0.01, True)
 
 
-class test_any(unittest.TestCase):
+class Test_any(unittest.TestCase):
     def test_one(self):
         w = stacklesslib.wait.WaitSite()
         a = stacklesslib.wait.any([w])
@@ -473,7 +473,7 @@ class test_any(unittest.TestCase):
         stacklesslib.wait.swait(any)
         self.assertEqual(any.result(), a)
 
-class test_all(unittest.TestCase):
+class Test_all(unittest.TestCase):
     def test_one(self):
         w = stacklesslib.wait.WaitSite()
         a = stacklesslib.wait.all([w])
@@ -495,6 +495,48 @@ class test_all(unittest.TestCase):
         all = stacklesslib.wait.all([b, a, c])
         stacklesslib.wait.swait(all)
         self.assertEqual(all.result(), [a, b, c])
+
+class TestValueTasklet(unittest.TestCase):
+    def test_simple(self):
+        def f(a):
+            return a
+        t = stacklesslib.wait.ValueTasklet(f)("hu")
+        stacklesslib.wait.swait(t)
+        self.assertEqual(t.result(), "hu")
+
+    def test_simple_run(self):
+        def f(a):
+            return a
+        t = stacklesslib.wait.ValueTasklet(f)("hu")
+        t.run()
+        stacklesslib.wait.swait(t)
+        self.assertEqual(t.result(), "hu")
+
+    def test_err(self):
+        def f(a):
+            raise RuntimeError(a)
+        t = stacklesslib.wait.ValueTasklet(f)("hu")
+        stacklesslib.wait.swait(t)
+        try:
+            t.result()
+        except Exception as e:
+            self.assertEqual(e.args[0], "hu")
+        else:
+            self.assertTrue(False)
+
+    def test_kill(self):
+        def f(a):
+            raise TaskletExit("dude")
+        t = stacklesslib.wait.ValueTasklet(f)("hu")
+        stacklesslib.wait.swait(t)
+        try:
+            t.result()
+        except stacklesslib.errors.CancelledError as e:
+            self.assertTrue(isinstance(e.args[0], TaskletExit))
+        else:
+            self.assertTrue(False)
+
+
 
 from .support import load_tests
 
