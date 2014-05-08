@@ -242,3 +242,45 @@ def wait(objects, timeout=None, count=None):
     if count is None:
         return list(iwait(objects, timeout))
     return list(itertools.islice(iwait(objects, timeout), count))
+
+def swait(waitable, timeout=None, raise_timeout=False):
+    """
+    A simple wait function to wait for a single waitable.
+    """
+    channel = stacklesslib.util.qchannel()
+    with atomic():
+        waitable.add_done_callback(channel.send)
+        try:
+            with stacklesslib.util.timeout(timeout):
+                channel.receive()
+            return waitable
+        except TimeoutError:
+            if raise_timeout:
+                raise
+        finally:
+            waitable.remove_done_callback(channel.send)
+
+def any(iterable):
+    """
+    Returns a waitable object which is done when any of the waitables
+    in iterable is ready.  its "result" method will return the waitable
+    that was ready
+    """
+    def any_func():
+        for i in iwait(iterable):
+            return i
+    t = ValueTasklet(any_func)()
+    t.run()
+    return t
+
+def all(iterable):
+    """
+    Returns a waitable object which is done when all of the waitables
+    in iterable are ready.  its "result" method returns the waitables
+    in the order in which they became ready.
+    """
+    def all_func():
+        return list(iwait(iterable))
+    t = ValueTasklet(all_func)()
+    t.run()
+    return t

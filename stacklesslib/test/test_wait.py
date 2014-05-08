@@ -54,6 +54,12 @@ def ctxtStart(ctxt):
 def ctxtStop(ctxt):
         ctxt.__exit__(None, None, None)
 
+def delay(t):
+    """a simple delay waitable"""
+    def f():
+        stacklesslib.main.sleep(t)
+    return stacklesslib.wait.WaitableTasklet(f)()
+
 def getswaitable():
     class swaitable(stacklesslib.wait.WaitSite):
         def __init__(self, t):
@@ -421,6 +427,74 @@ class TestObserver(unittest.TestCase):
         self.assertTrue(o.got_callback)
         self.assertFalse(oo.got_callback)
 
+class test_swait(unittest.TestCase):
+    def test_ready(self):
+        w = stacklesslib.wait.WaitSite()
+        o = stacklesslib.wait.Observer(w)
+        w.waitsite_signal()
+        r = stacklesslib.wait.swait(o)
+        self.assertEqual(r, o)
+
+    def test_not_ready(self):
+        t = delay(0.001)
+        r = stacklesslib.wait.swait(t)
+        self.assertEqual(r, t)
+
+    def test_timeout(self):
+        t = delay(0.01)
+        r = stacklesslib.wait.swait(t, timeout=0.01)
+        self.assertEqual(r, None)
+
+    def test_timeout_exc(self):
+        t = delay(0.01)
+        self.assertRaises(stacklesslib.errors.TimeoutError, stacklesslib.wait.swait, t, 0.01, True)
+
+
+class test_any(unittest.TestCase):
+    def test_one(self):
+        w = stacklesslib.wait.WaitSite()
+        a = stacklesslib.wait.any([w])
+        w.waitsite_signal()
+        stacklesslib.wait.swait(a)
+        self.assertEqual(a.result(), w)
+
+    def test_none(self):
+        a = stacklesslib.wait.any([])
+        self.assertEqual(a.result(), None)
+
+    def test_none_wait(self):
+        a = stacklesslib.wait.any([])
+        stacklesslib.wait.swait(a)
+        self.assertEqual(a.result(), None)
+
+    def test_three(self):
+        a, b, c = delay(0.001), delay(0.01), delay(0.02)
+        any = stacklesslib.wait.any([b, a, c])
+        stacklesslib.wait.swait(any)
+        self.assertEqual(any.result(), a)
+
+class test_all(unittest.TestCase):
+    def test_one(self):
+        w = stacklesslib.wait.WaitSite()
+        a = stacklesslib.wait.all([w])
+        w.waitsite_signal()
+        stacklesslib.wait.swait(a)
+        self.assertEqual(a.result(), [w])
+
+    def test_none(self):
+        a = stacklesslib.wait.all([])
+        self.assertEqual(a.result(), [])
+
+    def test_none_wait(self):
+        a = stacklesslib.wait.all([])
+        stacklesslib.wait.swait(a)
+        self.assertEqual(a.result(), [])
+
+    def test_three(self):
+        a, b, c = delay(0.001), delay(0.002), delay(0.003)
+        all = stacklesslib.wait.all([b, a, c])
+        stacklesslib.wait.swait(all)
+        self.assertEqual(all.result(), [a, b, c])
 
 from .support import load_tests
 

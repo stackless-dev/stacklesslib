@@ -5,10 +5,8 @@ import traceback
 import collections
 import stackless
 import itertools
-from .base import SignalChannel
 from .errors import TimeoutError, CancelledError
 from . import util, threadpool
-from .util import timeout as _timeout
 from .util import atomic
 from weakref import WeakSet
 from . import wait as _waitmodule
@@ -266,14 +264,8 @@ class Future(_waitmodule.WaitSite):
         """Wait until the future has finished or been cancelled"""
         with atomic():
             if not self.done():
-                e = SignalChannel()
-                self.add_done_callback(e.signal)
-                try:
-                    with _timeout(timeout):
-                        e.receive()
-                finally:
-                    self.remove_done_callback(e.signal)
-    
+                _waitmodule.swait(self, timeout, True)
+
     def waitsite_signalled(self):
         # is the object ready when the callback is added?
         return self._result
