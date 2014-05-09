@@ -9,6 +9,7 @@ import stacklesslib.app
 import stacklesslib.errors
 import stacklesslib.base
 import stacklesslib.main
+from stacklesslib.errors import TimeoutError
 
 from .support import timesafe, captured_stderr
 
@@ -533,6 +534,73 @@ class TestValueTasklet(unittest.TestCase):
             self.assertTrue(isinstance(e.args[0], TaskletExit))
         else:
             self.assertTrue(False)
+
+class TestWaitChannel(unittest.TestCase):
+    def cls(self):
+        # this is a function to deal with dynamic reloading
+        return stacklesslib.wait.WaitChannel()
+    def getsend(self, delay, v=None):
+        c = self.cls()
+        def f():
+            stacklesslib.main.sleep(delay)
+            c.send(v)
+        stackless.tasklet(f)()
+        return c
+
+    def getrecv(self, delay):
+        c = self.cls()
+        def f():
+            stacklesslib.main.sleep(delay)
+            c.receive()
+        stackless.tasklet(f)()
+        return c
+
+    def test_send(self):
+        c = self.getsend(0.001)
+        self.assertEqual(c.balance, 0)
+        stacklesslib.wait.swait(c)
+        self.assertEqual(c.balance, 1)
+        c.receive()
+        self.assertEqual(c.balance, 0)
+
+    def test_recv(self):
+        c = self.getrecv(0.001)
+        self.assertEqual(c.balance, 0)
+        stacklesslib.wait.swait(c)
+        self.assertEqual(c.balance, -1)
+        c.send(None)
+        self.assertEqual(c.balance, 0)
+
+    def test_receivable(self):
+        #Test that the Receivable wakes up when send has been done
+        c = self.getsend(0.001)
+        r = stacklesslib.wait.Receivable(c)
+        stacklesslib.wait.swait(r)
+        self.assertEqual(r.observed.balance, 1)
+        c.receive()
+
+    def test_sendableable(self):
+        c = self.getrecv(0.001)
+        r = stacklesslib.wait.Sendable(c)
+        stacklesslib.wait.swait(r)
+        self.assertEqual(r.observed.balance, -1)
+        c.send(None)
+
+    def test_receivable_recv(self):
+        # test tha tthe receivable does not wake up when a receive is pending
+        c = self.getrecv(0.001)
+        r = stacklesslib.wait.Receivable(c)
+        self.assertRaises(TimeoutError, stacklesslib.wait.swait, r, 0.005)
+        self.assertEqual(r.observed.balance, -1)
+        c.send(None)
+
+    def test_sendable_send(self):
+        c = self.getsend(0.001)
+        r = stacklesslib.wait.Sendable(c)
+        self.assertRaises(TimeoutError, stacklesslib.wait.swait, r, 0.005)
+        self.assertEqual(r.observed.balance, 1)
+        c.receive()
+
 
 from .support import load_tests
 

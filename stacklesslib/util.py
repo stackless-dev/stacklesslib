@@ -98,7 +98,28 @@ def tasklet_throw(tasklet, exc, val=None, tb=None, pending=False):
         val = val.args
     tasklet.raise_exception(exc, *val)
 
-class qchannel(stackless.channel):
+class ChannelSequenceMixin(object):
+    """
+    A mixin that adds the channel sequence operations on top of the more simple
+    channel operations.  Useful when building custom channels.
+    """
+
+    def send_sequence(self):
+        for i in sequence:
+            self.send(i)
+
+    def __iter__(self):
+            return self
+
+    def __next__(self):
+        try:
+            return self.receive()
+        except ValueError as e:
+            if "closed channel" in str(e):
+                raise StopIteration
+            raise
+
+class qchannel(ChannelSequenceMixin, stackless.channel):
     """
     A qchannel is like a channel except that it contains a queue, so that the
     sender never blocks.  If there isn't a blocked tasklet waiting for the data,
@@ -148,14 +169,6 @@ class qchannel(stackless.channel):
                 raise exc, value, tb
             finally:
                 tb = None
-
-    #iterator protocol
-    def send_sequence(self, sequence):
-        for i in sequence:
-            self.send(i)
-
-    def __next__(self):
-        return self.receive()
 
 def tasklet_new(function, args=(), kwargs={}):
     """

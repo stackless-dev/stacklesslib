@@ -188,8 +188,70 @@ class ValueTasklet(WaitableTasklet):
         """
         return self.get(timeout=timeout)
 
+class WaitChannelMixin(WaitSite, stacklesslib.util.ChannelSequenceMixin):
+    """
+    A mixin for channels to make them waitable.  A wait will succeed whenever
+    the channel changes state from being blocked to unblocked, in whichever
+    direction.
+    """
+    def __init__(self):
+        super(WaitChannelMixin, self).__init__()
+        # We must temporarily lie about the balance value while making
+        # wait callback calls.
+        self._balance_adjust = 0
 
-def iwait(objects, timeout=None):
+    @property
+    def balance(self):
+        return super(WaitChannelMixin, self).balance + self._balance_adjust
+
+    def _notify_state_change(self, adjust):
+        """
+        Called when a channel is about to be receivable.  Should be called
+        while the current tasklet is in the atomic mode.
+        """
+        if super(WaitChannelMixin, self).balance == 0:
+            # The channel is becoming receivable or sendable. Let any interested
+            # parties know
+            self._balance_adjust += adjust
+            try:
+                self.waitsite_signal()
+            finally:
+                self._balance_adjust -= adjust
+
+    def send(self, value):
+        with atomic():
+            self._notify_state_change(1)
+            super(WaitChannelMixin, self).send(value)
+
+    def send_exception(self, exc, *args):
+        with atomic():
+            self._notify_state_change(1)
+            super(WaitChannelMixin, self).send_exception(exc, *args)
+
+    def send_throw(self, exc, value=None, tb=None):
+        with atomic():
+            self._notify_state_change(1)
+            super(WaitChannelMixin, self).send_throw(exc, value, tb)
+
+    def receive(self):
+        with atomic():
+            self._notify_state_change(-1)
+            return super(WaitChannelMixin, self).receive()
+
+class Receivable(Observer):
+    def filter(self):
+        return self.observed.balance > 0
+
+class Sendable(Observer):
+    def filter(self):
+        return self.observed.balance < 0
+
+class WaitChannel(WaitChannelMixin, stackless.channel):
+    """
+    A channel that provides wait semantics for receive
+    """
+
+def iwait(objects, timeout=None, raise_timeout=False):
     """
     A generator that returns objects as they become ready.  The total waiting
     time will not exceed "timeout" if provided.  Raises TimeoutError if a timeout
