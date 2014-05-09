@@ -264,7 +264,7 @@ class Future(_waitmodule.WaitSite):
         """Wait until the future has finished or been cancelled"""
         with atomic():
             if not self.done():
-                _waitmodule.swait(self, timeout, True)
+                _waitmodule.swait(self, timeout)
 
     def waitsite_signalled(self):
         # is the object ready when the callback is added?
@@ -331,7 +331,7 @@ def wait(fs, timeout=None, return_when=ALL_COMPLETED):
         return done, not_done
 
     # second round, the incomplete ones
-    for f in as_completed(not_done, timeout):
+    for f in _waitmodule.iwait_no_raise(not_done, timeout):
         done.add(f)
         if return_when == FIRST_COMPLETED:
             break
@@ -342,12 +342,9 @@ def wait(fs, timeout=None, return_when=ALL_COMPLETED):
     not_done -= done
     return done, not_done
 
-_wait = wait #to resolve naming conflicts
+_wait = wait #to resolve naming conflicts with function arguments
 
 as_completed = _waitmodule.iwait
-def _as_completed(fs, timeout=None):
-    return _waitmodule.iwait(fs, timeout=timeout, raise_timeout=True)
-
 
 # Convenience functions to gather all or any result from a set of futures
 def all_results(fs, timeout=None):

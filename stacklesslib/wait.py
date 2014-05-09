@@ -189,10 +189,11 @@ class ValueTasklet(WaitableTasklet):
         return self.get(timeout=timeout)
 
 
-def iwait(objects, timeout=None, raise_timeout=False):
+def iwait(objects, timeout=None):
     """
     A generator that returns objects as they become ready.  The total waiting
-    time will not exceed "timeout" if provided.
+    time will not exceed "timeout" if provided.  Raises TimeoutError if a timeout
+    occurs.
     """
     channel = stacklesslib.util.qchannel()
     count = 0
@@ -217,17 +218,13 @@ def iwait(objects, timeout=None, raise_timeout=False):
                     while channel.balance > 0:
                         count -= 1
                         yield channel.receive()
-                    if count and raise_timeout:
+                    if count:
                         raise TimeoutError()
             else:
                 timeouts = stacklesslib.util.Timeouts(timeout)
-                try:
-                    for i in xrange(count):
-                        with timeouts.timeout():
-                            yield channel.receive()
-                except TimeoutError:
-                    if raise_timeout:
-                        raise
+                for i in xrange(count):
+                    with timeouts.timeout():
+                        yield channel.receive()
         else:
             for i in xrange(count):
                 yield channel.receive()
@@ -235,29 +232,37 @@ def iwait(objects, timeout=None, raise_timeout=False):
         for obj, cb in callbacks.items():
             obj.remove_done_callback(cb)
 
+def iwait_no_raise(objects, timeout=None):
+    """
+    Like 'iwait' but doesn't raise a TimeoutError, only stops returning results
+    when a timeout occurs.
+    """
+    try:
+        for i in iwait(objects, timeout):
+            yield i
+    except TimeoutError:
+        pass
+
 def wait(objects, timeout=None, count=None):
     """
     Wait for objects, for at most "timeout" seconds or until "count" objects
     are ready.  Returns a list containing the ready objects in the order they became ready.
     """
     if count is None:
-        return list(iwait(objects, timeout))
-    return list(itertools.islice(iwait(objects, timeout), count))
+        return list(iwait_no_raise(objects, timeout))
+    return list(itertools.islice(iwait_no_raise(objects, timeout), count))
 
-def swait(waitable, timeout=None, raise_timeout=False):
+def swait(waitable, timeout=None):
     """
-    A simple wait function to wait for a single waitable.
+    A simple wait function to wait for a single waitable.  Returns the waitable
+    or raises TimeoutError.
     """
     channel = stacklesslib.util.qchannel()
     with atomic():
         waitable.add_done_callback(channel.send)
         try:
             with stacklesslib.util.timeout(timeout):
-                channel.receive()
-            return waitable
-        except TimeoutError:
-            if raise_timeout:
-                raise
+                return channel.receive()
         finally:
             waitable.remove_done_callback(channel.send)
 

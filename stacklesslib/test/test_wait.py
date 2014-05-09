@@ -58,7 +58,10 @@ def delay(t):
     """a simple delay waitable"""
     def f():
         stacklesslib.main.sleep(t)
-    return stacklesslib.wait.WaitableTasklet(f)()
+        stackless.getcurrent().done = True
+    task = stacklesslib.wait.WaitableTasklet(f)
+    task.done = False
+    return task()
 
 def getswaitable():
     class swaitable(stacklesslib.wait.WaitSite):
@@ -235,7 +238,7 @@ class WaitTest(WaitMixIn, unittest.TestCase):
 class TestIWait(WaitMixIn, unittest.TestCase):
     """Perform basic wait test plus iteration tests"""
     def wait(self, objects, timeout=None):
-        return list(stacklesslib.wait.iwait(objects, timeout=timeout))
+        return list(stacklesslib.wait.iwait_no_raise(objects, timeout=timeout))
 
     def test_order(self):
         w = get_waitables([0.001, 0.002, 0, 0.0001, 0, 0.003, 0.025])
@@ -250,7 +253,7 @@ class TestIWait(WaitMixIn, unittest.TestCase):
 
     def test_timeout_raise(self):
         w = get_waitables([0.001, 0.002, 0, 0.003, 0, 0.004, 0.005])
-        i = stacklesslib.wait.iwait(w, timeout = 0.0035, raise_timeout=True)
+        i = stacklesslib.wait.iwait(w, timeout = 0.0035)
         r = []
         def func():
             for v in i:
@@ -261,7 +264,7 @@ class TestIWait(WaitMixIn, unittest.TestCase):
 
     def test_timeout_raise_zero(self):
         w = get_waitables([0, 0, 0.0, 0.001])
-        i = stacklesslib.wait.iwait(w, timeout = 0, raise_timeout=True)
+        i = stacklesslib.wait.iwait(w, timeout = 0)
         r = []
         def func():
             for v in i:
@@ -442,12 +445,7 @@ class test_swait(unittest.TestCase):
 
     def test_timeout(self):
         t = delay(0.01)
-        r = stacklesslib.wait.swait(t, timeout=0.01)
-        self.assertEqual(r, None)
-
-    def test_timeout_exc(self):
-        t = delay(0.01)
-        self.assertRaises(stacklesslib.errors.TimeoutError, stacklesslib.wait.swait, t, 0.01, True)
+        self.assertRaises(stacklesslib.errors.TimeoutError, stacklesslib.wait.swait, t, 0.01)
 
 
 class Test_any(unittest.TestCase):
@@ -535,8 +533,6 @@ class TestValueTasklet(unittest.TestCase):
             self.assertTrue(isinstance(e.args[0], TaskletExit))
         else:
             self.assertTrue(False)
-
-
 
 from .support import load_tests
 
