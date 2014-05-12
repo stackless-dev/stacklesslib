@@ -203,22 +203,22 @@ class TestCancellable(unittest.TestCase):
         with handle as h:
             self.assertTrue(handle is h)
 
-class test_qchannel(unittest.TestCase):
+class test_QueueChannel(unittest.TestCase):
     def setUp(self):
-        self.c = util.qchannel()
+        self.c = util.QueueChannel()
 
     def test_create(self):
         pass
 
     def test_send(self):
-        #sending on a qchannel isn't blocking
+        #sending on a QueueChannel isn't blocking
         self.c.send(1)
         self.c.send(2)
         self.assertEqual(self.c.receive(), 1)
         self.assertEqual(self.c.receive(), 2)
 
     def test_receive(self):
-        #receiving on a qchannel blocks
+        #receiving on a QueueChannel blocks
         r = []
         def f():
             for i in range(10):
@@ -236,9 +236,9 @@ class test_qchannel(unittest.TestCase):
         self.assertEqual(r, range(10))
 
 
-class test_bounded_qchannel(test_qchannel):
+class test_bounded_QueueChannel(test_QueueChannel):
     def setUp(self):
-        self.c = util.qchannel(3)
+        self.c = util.QueueChannel(3)
 
 
     def test_block(self):
@@ -265,9 +265,9 @@ class test_bounded_qchannel(test_qchannel):
         self.assertEqual(where[0], 9)
 
 
-class test_zero_bounded_qchannel(test_qchannel):
+class test_zero_bounded_QueueChannel(test_QueueChannel):
     def setUp(self):
-        self.c = util.qchannel(0)
+        self.c = util.QueueChannel(0)
 
     def test_send(self):
         # sending on a a zero bounded channel is equivalent to a normal one.
@@ -295,7 +295,7 @@ class test_zero_bounded_qchannel(test_qchannel):
         self.assertEqual(where[0], 9)
 
     def test_receive(self):
-        #receiving on a qchannel blocks
+        #receiving on a QueueChannel blocks
         r = []
         def f():
             for i in range(10):

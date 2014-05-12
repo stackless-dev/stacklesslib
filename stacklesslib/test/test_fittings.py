@@ -7,7 +7,7 @@ import stackless
 import stacklesslib.fittings
 import stacklesslib.app
 import stacklesslib.errors
-from stacklesslib.util import qchannel
+from stacklesslib.util import QueueChannel
 
 from .support import timesafe
 
@@ -261,7 +261,7 @@ class TestAsyncToSync(unittest.TestCase):
             self.assertEqual(i.args[0],((2, 3, 4), {"kw" : None}))
         else:
             self.fail("exception not raised")
-        
+
     @timesafe()
     def test_call_dispatcher(self):
         a = SyncAPI()

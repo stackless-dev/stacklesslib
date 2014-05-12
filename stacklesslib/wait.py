@@ -257,7 +257,7 @@ def iwait(objects, timeout=None, raise_timeout=False):
     time will not exceed "timeout" if provided.  Raises TimeoutError if a timeout
     occurs.
     """
-    channel = stacklesslib.util.qchannel()
+    channel = stacklesslib.util.QueueChannel()
     count = 0
     callbacks = {}
     def get_cb(obj):
@@ -319,7 +319,7 @@ def swait(waitable, timeout=None):
     A simple wait function to wait for a single waitable.  Returns the waitable
     or raises TimeoutError.
     """
-    channel = stacklesslib.util.qchannel()
+    channel = stacklesslib.util.QueueChannel()
     with atomic():
         waitable.add_done_callback(channel.send)
         try:

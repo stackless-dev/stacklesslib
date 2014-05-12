@@ -119,9 +119,9 @@ class ChannelSequenceMixin(object):
                 raise StopIteration
             raise
 
-class qchannel(ChannelSequenceMixin, stackless.channel):
+class QueueChannel(ChannelSequenceMixin, stackless.channel):
     """
-    A qchannel is like a channel with a queue for holding data.  The queue has
+    A QueueChannel is like a channel with a queue for holding data.  The queue has
     a 'max_len' value.  If it is negative, the queue can grow forever.
     If the balance is zero or positive, if there is room on the queue, a sender
     will not block but have its data added to the queue.
@@ -131,7 +131,7 @@ class qchannel(ChannelSequenceMixin, stackless.channel):
     """
     def __init__(self, max_len=-1):
         """
-        Initialize the qchannel with a max_len.  The default is -1 which means
+        Initialize the QueueChannel with a max_len.  The default is -1 which means
         that it is unlimited.
         """
         self.value_queue = collections.deque()
@@ -139,12 +139,12 @@ class qchannel(ChannelSequenceMixin, stackless.channel):
 
     @property
     def balance(self):
-        return len(self.value_queue) + super(qchannel, self).balance
+        return len(self.value_queue) + super(QueueChannel, self).balance
 
     def _send(self, value):
         # returns true if a send should append its result to the
         # queue
-        sup = super(qchannel, self)
+        sup = super(QueueChannel, self)
         with atomic():
             if not sup.closing and sup.balance == 0:
                 if self.max_len < 0 or len(self.value_queue) < self.max_len:
@@ -173,7 +173,7 @@ class qchannel(ChannelSequenceMixin, stackless.channel):
         return value
 
     def receive(self):
-        sup = super(qchannel, self)
+        sup = super(QueueChannel, self)
         with atomic():
             # is there data on the channel? move it to the queue
             if sup.balance > 0:

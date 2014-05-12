@@ -4,7 +4,7 @@
 import sys
 import stackless
 import stacklesslib.util
-from stacklesslib.util import qchannel, atomic
+from stacklesslib.util import QueueChannel, atomic
 from stacklesslib.errors import CancelledError, AsyncCallFailed
 
 """
@@ -34,7 +34,7 @@ class SyncToAsync(object):
     """
 
     def __init__(self):
-        self.channel = qchannel()
+        self.channel = QueueChannel()
         self.tasklet = None
 
     def initiate_call(self, args, kwds):
