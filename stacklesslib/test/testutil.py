@@ -203,6 +203,115 @@ class TestCancellable(unittest.TestCase):
         with handle as h:
             self.assertTrue(handle is h)
 
+class test_qchannel(unittest.TestCase):
+    def setUp(self):
+        self.c = util.qchannel()
+
+    def test_create(self):
+        pass
+
+    def test_send(self):
+        #sending on a qchannel isn't blocking
+        self.c.send(1)
+        self.c.send(2)
+        self.assertEqual(self.c.receive(), 1)
+        self.assertEqual(self.c.receive(), 2)
+
+    def test_receive(self):
+        #receiving on a qchannel blocks
+        r = []
+        def f():
+            for i in range(10):
+                r.append(self.c.receive())
+
+        self.c.send(0)
+        self.c.send(1)
+        t = stackless.tasklet(f)()
+        t.run()
+        self.assertEqual(r, range(2))
+        self.c.send(2)
+        self.assertEqual(r, range(3))
+        for i in range(3, 10):
+            self.c.send(i)
+        self.assertEqual(r, range(10))
+
+
+class test_bounded_qchannel(test_qchannel):
+    def setUp(self):
+        self.c = util.qchannel(3)
+
+
+    def test_block(self):
+        where = [None]
+        def f():
+            for i in range(10):
+                where[0] = i
+                self.c.send(i)
+        t = stackless.tasklet(f)()
+        t.run()
+        self.assertTrue(t.blocked)
+        self.assertEqual(where[0], 3)
+        r = []
+        for i in range(3):
+            r.append(self.c.receive())
+        self.assertEqual(r, range(3))
+        t.run()
+        self.assertEqual(where[0], 6)
+
+        for i in range(7):
+            r.append(self.c.receive())
+        self.assertEqual(r, range(10))
+        t.run()
+        self.assertEqual(where[0], 9)
+
+
+class test_zero_bounded_qchannel(test_qchannel):
+    def setUp(self):
+        self.c = util.qchannel(0)
+
+    def test_send(self):
+        # sending on a a zero bounded channel is equivalent to a normal one.
+        where = [None]
+        def f():
+            for i in range(10):
+                where[0] = i
+                self.c.send(i)
+        t = stackless.tasklet(f)()
+        t.run()
+        self.assertTrue(t.blocked)
+        self.assertEqual(where[0], 0)
+
+        r = []
+        for i in range(5):
+            r.append(self.c.receive())
+        t.run()
+        self.assertEqual(r, range(5))
+        self.assertEqual(where[0], 5)
+
+        for i in range(5):
+            r.append(self.c.receive())
+        t.run()
+        self.assertEqual(r, range(10))
+        self.assertEqual(where[0], 9)
+
+    def test_receive(self):
+        #receiving on a qchannel blocks
+        r = []
+        def f():
+            for i in range(10):
+                r.append(self.c.receive())
+
+        t = stackless.tasklet(f)()
+        self.c.send(0)
+        self.c.send(1)
+        self.assertEqual(r, range(2))
+        self.c.send(2)
+        self.assertEqual(r, range(3))
+        for i in range(3, 10):
+            self.c.send(i)
+        self.assertEqual(r, range(10))
+
+
 from .support import load_tests
 
 if __name__ == "__main__":

@@ -121,47 +121,68 @@ class ChannelSequenceMixin(object):
 
 class qchannel(ChannelSequenceMixin, stackless.channel):
     """
-    A qchannel is like a channel except that it contains a queue, so that the
-    sender never blocks.  If there isn't a blocked tasklet waiting for the data,
-    the data is queued up internally.
-    Note that while the sender never blocks, the default channel preference is
-    still -1 so that a receiver, if available, will run immediately.
+    A qchannel is like a channel with a queue for holding data.  The queue has
+    a 'max_len' value.  If it is negative, the queue can grow forever.
+    If the balance is zero or positive, if there is room on the queue, a sender
+    will not block but have its data added to the queue.
+    If the queue is full, a sender will block
+    until its data can be added to the queue.
+    If the balance is negative, it behaves like a normal channel.
     """
-    def __init__(self):
-        self.data_queue = collections.deque()
+    def __init__(self, max_len=-1):
+        """
+        Initialize the qchannel with a max_len.  The default is -1 which means
+        that it is unlimited.
+        """
+        self.value_queue = collections.deque()
+        self.max_len = max_len
 
     @property
     def balance(self):
-        if self.data_queue:
-            return len(self.data_queue)
-        return super(qchannel, self).balance
+        return len(self.value_queue) + super(qchannel, self).balance
 
-    def send(self, data):
+    def _send(self, value):
+        # returns true if a send should append its result to the
+        # queue
         sup = super(qchannel, self)
         with atomic():
-            if sup.balance >= 0 and not sup.closing:
-                self.data_queue.append((True, data))
-            else:
-                sup.send(data)
+            if not sup.closing and sup.balance == 0:
+                if self.max_len < 0 or len(self.value_queue) < self.max_len:
+                    self.value_queue.append(value)
+                    return
+            sup.send(value)
+
+    def send(self, data):
+        self._send((True, data))
 
     def send_exception(self, exc, *args):
         self.send_throw(exc, args)
 
     def send_throw(self, exc, value=None, tb=None):
         """call with similar arguments as raise keyword"""
-        sup = super(qchannel, self)
-        with atomic():
-            if sup.balance >= 0 and not sup.closing:
-                self.data_queue.append((False, (exc, value, tb)))
-            else:
-                #deal with channel.send_exception signature
-                send_throw(sup, exc, value, tb)
+        self._send((False, (exc, value, tb)))
+
+    def _nb_receive(self, sup):
+        # receive from channel wihout blocking.  Need
+        # to temporarily change the channel behaviour
+        assert(sup.balance > 0)
+        old = self.preference, self.schedule_all
+        self.preference, self.schedule_all = -1, False
+        value = sup.receive()
+        self.preference, self.schedule_all = old
+        return value
 
     def receive(self):
+        sup = super(qchannel, self)
         with atomic():
-            if not self.data_queue:
-                return super(qchannel, self).receive()
-            ok, data = self.data_queue.popleft()
+            # is there data on the channel? move it to the queue
+            if sup.balance > 0:
+                self.value_queue.append(self._nb_receive(sup))
+            if self.value_queue:
+                value = self.value_queue.popleft()
+            else:
+                value = sup.receive()
+            ok, data = value
             if ok:
                 return data
             exc, value, tb = data
